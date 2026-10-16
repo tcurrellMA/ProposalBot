@@ -1,0 +1,43 @@
+# Main storage configuration: reuse the existing app image and external read-only SMB image volume.
+# Every setting below comes from the stack's environment variables (Portainer) or a .env file (CLI).
+services:
+  proposal-bot:
+    image: proposal-bot:latest
+    pull_policy: never
+    container_name: proposal-bot
+    restart: unless-stopped
+    # Reaps the headless Chromium processes the InDesign export starts.
+    init: true
+    # Published on the host's loopback only. NPMplus (host networking) forwards to http://127.0.0.1:4181;
+    # other machines cannot reach the port directly.
+    ports:
+      - "${PROPOSAL_BOT_BIND:-127.0.0.1}:${PROPOSAL_BOT_PORT:-4181}:4181"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4181
+      PROPOSAL_BOT_DATA_DIR: "/app/data"
+      PROPOSAL_BOT_PROJECT_IMAGES_DIR: "/app/Project Images"
+      PROPOSAL_BOT_AUTH_REQUIRED: "${PROPOSAL_BOT_AUTH_REQUIRED:-true}"
+      MICROSOFT_TENANT_ID: "${MICROSOFT_TENANT_ID:-}"
+      MICROSOFT_CLIENT_ID: "${MICROSOFT_CLIENT_ID:-}"
+      MICROSOFT_CLIENT_SECRET: "${MICROSOFT_CLIENT_SECRET:-}"
+      MICROSOFT_REDIRECT_URI: "${MICROSOFT_REDIRECT_URI:-}"
+      PROPOSAL_BOT_ALLOWED_EMAILS: "${PROPOSAL_BOT_ALLOWED_EMAILS:-}"
+    volumes:
+      # Saved projects. Must be writable by UID 1000 (the container's node user).
+      - type: bind
+        source: ${PROPOSAL_BOT_DATA_HOST_PATH:?Set PROPOSAL_BOT_DATA_HOST_PATH to an absolute host folder for saved projects}
+        target: /app/data
+      # Shared server2 photo library, one subfolder per typology.
+      - type: volume
+        source: shared-project-images
+        target: /app/Project Images
+        read_only: true
+        volume:
+          nocopy: true
+          subpath: Dashboards/Proposal Bot/Project Images
+
+volumes:
+  shared-project-images:
+    external: true
+    name: proposal-bot-shared-images
