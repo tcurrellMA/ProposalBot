@@ -1,0 +1,17 @@
+.git
+.github
+.agents
+John Files
+.local-data
+.env.*
+host-config.ps1
+.env
+Backups
+InDesign Exports
+Project Images
+tmp
+data
+server.err.log
+server.out.log
+Full Service Example.pdf
+*.bat

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Proposal Bot</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <div class="brand-mark">PB</div>
+          <div>
+            <h1>Proposal Bot</h1>
+            <span id="app-version" class="app-version" aria-label="App version">Version loading…</span>
+            <p id="draft-status">Draft ready</p>
+          </div>
+        </div>
+
+        <div class="sidebar-group">
+          <label for="draft-select">Drafts</label>
+          <select id="draft-select"></select>
+          <div class="draft-management-actions" aria-label="Draft actions">
+            <button type="button" class="secondary compact" id="refresh-drafts">Refresh</button>
+            <button type="button" class="secondary compact" id="rename-draft">Rename</button>
+            <button type="button" class="danger compact" id="delete-draft">Delete</button>
+          </div>
+        </div>
+
+        <div class="sidebar-actions">
+          <button type="button" class="secondary" id="new-proposal">New</button>
+          <button type="button" class="secondary" id="save-proposal">Save</button>
+        </div>
+
+        <nav class="step-list" id="section-nav" aria-label="Proposal sections"></nav>
+      </aside>
+
+      <main class="main-area">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Proposal builder</p>
+            <h2 id="proposal-heading">New Proposal</h2>
+          </div>
+          <div class="toolbar">
+            <button type="button" class="secondary" id="export-json">Data</button>
+            <button type="button" class="secondary" id="backup-app">Backup</button>
+            <button type="button" class="secondary" id="import-backup">Import</button>
+            <button type="button" class="secondary" id="export-indesign">InDesign</button>
+            <button type="button" class="secondary" id="export-word">Word</button>
+            <button type="button" class="primary" id="export-pdf">PDF</button>
+          </div>
+        </header>
+
+        <section class="workspace">
+          <section class="work-pane" aria-label="Proposal editor">
+            <div class="tabs" role="tablist" aria-label="Work areas">
+              <button type="button" class="tab" id="tab-notes" data-tab="notes">Notes</button>
+              <button type="button" class="tab active" id="tab-info" data-tab="info">Project Info</button>
+              <button type="button" class="tab" id="tab-sections" data-tab="sections">Sections</button>
+              <button type="button" class="tab" id="tab-photos" data-tab="photos">Photos</button>
+            </div>
+
+            <div id="editor-panel"></div>
+          </section>
+
+          <section class="preview-pane" aria-label="Proposal preview">
+            <div class="preview-head">
+              <div>
+                <p class="eyebrow">Live preview</p>
+                <h3>Formatted Proposal</h3>
+              </div>
+              <button type="button" class="secondary compact" id="toggle-preview">Wide</button>
+            </div>
+            <div id="proposal-preview" class="proposal-document"></div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+    <input type="file" id="import-backup-input" accept=".json,application/json" hidden>
+  </body>
+</html>

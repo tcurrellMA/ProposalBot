@@ -1,0 +1,21 @@
+.env
+Backups/
+InDesign Exports/
+tmp/
+server.err.log
+server.out.log
+data/
+.local-data/
+.env.*
+!.env.example
+host-config.ps1
+John Files/Dev_Notes_AGENTS.md
+
+# Shared/private source material, local tooling, and generated artifacts.
+Project Images/
+John Files/
+Full Service Example.pdf
+output/
+.agents/
+.codex/
+node_modules/

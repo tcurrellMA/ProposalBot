@@ -1,0 +1,26 @@
+services:
+  proposal-bot:
+    build:
+      context: .
+    image: proposal-bot:latest
+    container_name: proposal-bot
+    restart: unless-stopped
+    ports:
+      - "${PROPOSAL_BOT_PORT:-4181}:4181"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4181
+      PROPOSAL_BOT_AUTH_REQUIRED: "true"
+      PROPOSAL_BOT_PROJECT_IMAGES_DIR: "/app/Project Images"
+      PROPOSAL_BOT_DATA_DIR: "/app/data"
+    volumes:
+      - type: bind
+        source: ${PROPOSAL_BOT_DATA_HOST_PATH:?Set PROPOSAL_BOT_DATA_HOST_PATH in .env}
+        target: /app/data
+      - type: bind
+        source: ${PROPOSAL_BOT_PROJECT_IMAGES_HOST_PATH:?Set PROPOSAL_BOT_PROJECT_IMAGES_HOST_PATH in .env}
+        target: /app/Project Images
+        read_only: true
