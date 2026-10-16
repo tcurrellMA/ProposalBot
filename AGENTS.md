@@ -2,9 +2,10 @@
 
 - Resolve local paths relative to this project folder so it can be moved.
 - Make changes locally and provide a running local preview for testing before pushing.
-- Do not push automatically. When the user says "Push to github", commit and push all pending project changes, including additions and deletions, with a descriptive commit message. Review the complete diff and run relevant checks first. Exclude secrets, local configuration, generated files, and saved project data. Never force-push without explicit authorization.
+- Do not push automatically. When the user says "Push to github", commit and push all pending project changes, including additions and deletions, with a descriptive commit message, then deploy that release to the existing live Proposal Bot site at https://proposals.munozalbin.com/ and verify the live version. Wait for the GitHub container build to succeed before deploying. Review the complete diff and run relevant checks first. Exclude secrets, local configuration, generated files, and saved project data. Never force-push without explicit authorization.
 - Preserve Git history. Confirm the intended repository if its connection is missing; do not initialize replacement history or guess the destination.
 - Use `start-proposal-bot-local.ps1` for preview at http://127.0.0.1:4181/ with separate local test data.
 - Local and Main use the shared image library at `\\server2\administration\Dashboards\Proposal Bot\Project Images`. Local uses this path by default; Main needs a read-only Docker mount of the same share. Keep saved projects separate from this image library. Verify the live mount before claiming Main has been switched.
 - `John Files/Dev_Notes_AGENTS.md` is reference material containing credentials. Never commit it or repeat its credentials. The user's explicit-push workflow supersedes its automatic-push guidance.
-- A push does not authorize separate production deployment or infrastructure changes.
+- The push request authorizes updating the existing Proposal Bot application deployment. Preserve live project data, mounts, ports, sign-in settings, and infrastructure. Report any access blocker and never claim deployment succeeded without verifying the live release.
+- The user authorizes using the saved Portainer API credential in the private reference file for Proposal Bot deployment now and on future requested deployments. Never display or commit the credential. If authentication fails, request a replacement rather than changing authentication or unrelated infrastructure.
