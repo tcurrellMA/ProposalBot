@@ -775,6 +775,15 @@
       flashStatus("Photo replaced. Choose Hand to reposition it.");
     });
 
+    ProposalTextFlow.install(els.preview, {
+      settings: function () { return proposal.textFrameBottoms || {}; },
+      commit: function (settings) {
+        proposal.textFrameBottoms = settings;
+        markDirty();
+        renderPreview();
+        saveCurrentDraft();
+      }
+    });
     els.preview.addEventListener("pointerdown", beginPreviewPhotoFrameResize);
     els.preview.addEventListener("keydown", keyPreviewPhotoFrameResize);
     document.addEventListener("pointermove", movePreviewPhotoFrameResize);
@@ -978,6 +987,7 @@
     base.sectionOverrides = base.sectionOverrides || {};
     base.photoSelections = base.photoSelections || {};
     base.photoFrameHeights = normalizePhotoFrameHeights(base.photoFrameHeights);
+    base.textFrameBottoms = ProposalTextFlow.normalize(base.textFrameBottoms);
     base.photos = Array.isArray(base.photos) ? base.photos : [];
     if (base.photos.some(function (photo) { return photo.sample; })) {
       base.meta.samplePhotosSeeded = true;
@@ -2055,7 +2065,7 @@
     var pageKey = "northline-" + page.key;
     var photos = choosePagePhotos(photoType, pageKey, ["main"]);
     var stats = proposal.qualifications.stats.filter(function (item) {
-      return item && (item.value || item.label || item.detail);
+      return item && item.included !== false && (item.value || item.label || item.detail);
     }).slice(0, 6);
     return '<article class="proposal-page northline-page northline-qualifications-page" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + '>' +
       '<div class="northline-inner">' +
@@ -3407,6 +3417,7 @@
     proposal.photoFrameHeights[handle.dataset.photoFrameKey] = height;
     markDirty();
     saveCurrentDraft();
+    if (Object.keys(proposal.textFrameBottoms || {}).length) renderPreview();
   }
 
   function beginPreviewPhotoFrameResize(event) {
@@ -6409,7 +6420,7 @@
 
   async function buildInDesignPageHtml(node, pagePixels, imageCache) {
     var clone = node.cloneNode(true);
-    clone.querySelectorAll(".photo-slot-tools, .photo-frame-resize-handle").forEach(function (toolNode) {
+    clone.querySelectorAll(".photo-slot-tools, .photo-frame-resize-handle, .text-frame-resize-handle").forEach(function (toolNode) {
       toolNode.remove();
     });
     for (var image of clone.querySelectorAll("img")) {
@@ -6492,7 +6503,7 @@
     var width = Math.max(1, Math.round(rect.width));
     var height = Math.max(1, Math.round(rect.height));
     var clone = element.cloneNode(true);
-    clone.querySelectorAll(".photo-slot-tools, .photo-frame-resize-handle").forEach(function (node) {
+    clone.querySelectorAll(".photo-slot-tools, .photo-frame-resize-handle, .text-frame-resize-handle").forEach(function (node) {
       node.remove();
     });
     clone.style.margin = "0";
@@ -7113,7 +7124,7 @@
       '.is-intro-page .photo-slot-top{height:1.96in;}',
       '.is-intro-page .photo-slot-bottom{height:3.94in;margin-top:.28in;}',
       '.page-photo{width:100%;height:100%;object-fit:cover;display:block;}',
-      '.photo-slot-tools,.photo-frame-resize-handle{display:none!important;}',
+      '.photo-slot-tools,.photo-frame-resize-handle,.text-frame-resize-handle{display:none!important;}',
       '.photo-placeholder{background:#e7e1d7;color:#8c867c;text-align:center;font-weight:bold;font-size:12px;letter-spacing:.08em;text-transform:uppercase;}',
       '.photo-placeholder span{display:block;margin-top:45%;}',
       '.page-content{position:absolute;left:4in;top:1.1in;width:3.86in;height:9.1in;overflow:hidden;}',
@@ -7634,6 +7645,7 @@
     base.notes = String(base.notes || "");
     base.photoSelections = base.photoSelections || {};
     base.photoFrameHeights = normalizePhotoFrameHeights(base.photoFrameHeights);
+    base.textFrameBottoms = ProposalTextFlow.normalize(base.textFrameBottoms);
     base.photoSelectionHistory = normalizePhotoSelectionHistory(base.photoSelectionHistory);
     base.photos = Array.isArray(base.photos) ? base.photos : [];
     if (base.photos.some(function (photo) { return photo.sample; })) {
@@ -9312,7 +9324,7 @@
   }
 
   function renderQualificationsCard() {
-    var card = panelCard("Our Qualifications", "Edit the narrative and highlighted strengths shown on the qualifications page.");
+    var card = panelCard("Our Qualifications", "Edit the narrative and highlighted strengths. Uncheck a strength to hide it from the proposal; its text is kept.");
     var overview = renderField(fieldDef("qualifications.overview", "Overview", "textarea", true));
     card.appendChild(overview);
     var stats = document.createElement("div");
@@ -9320,6 +9332,19 @@
     proposal.qualifications.stats.forEach(function (stat, index) {
       var statCard = document.createElement("div");
       statCard.className = "qualification-stat-editor";
+      var toggle = document.createElement("input");
+      toggle.type = "checkbox";
+      toggle.className = "qualification-stat-toggle";
+      toggle.checked = stat.included !== false;
+      toggle.title = "Include this qualification in the proposal";
+      toggle.setAttribute("aria-label", "Include qualification " + (index + 1) + " in the proposal");
+      toggle.addEventListener("change", function () {
+        stat.included = toggle.checked;
+        markDirty();
+        renderPreview();
+        saveCurrentDraft();
+      });
+      statCard.appendChild(toggle);
       statCard.appendChild(renderNestedField("qualifications.stats." + index + ".value", "Value"));
       statCard.appendChild(renderNestedField("qualifications.stats." + index + ".label", "Label"));
       statCard.appendChild(renderNestedField("qualifications.stats." + index + ".detail", "Detail", "textarea"));
@@ -10615,7 +10640,10 @@
     document.body.classList.toggle("printing-structured-portrait", theme === "maOg" || theme === "studioPortrait");
     ensurePrintPageSize();
     photoSelectionsChanged = false;
+    (els.preview._textFrameObservers || []).forEach(function (observer) { observer.disconnect(); });
+    els.preview._textFrameObservers = [];
     els.preview.innerHTML = optimizePreviewImageMarkup(renderProposalPages());
+    ProposalTextFlow.mount(els.preview);
     boldAttachmentReferences(els.preview);
     syncPreviewPhotoPanState();
     if (photoSelectionsChanged && canSavePhotoSelectionsNow()) {
@@ -10715,6 +10743,7 @@
   }
 
   function renderSelectedCompensationPage(page, generatedPage) {
+    generatedPage = ProposalTextFlow.decorate(page, generatedPage);
     var compensation = proposal.customCompensation || {};
     if (!page || !Array.isArray(page.sectionIds) || page.sectionIds.indexOf("compensationPage") < 0 || !compensation.enabled || !compensation.dataUrl) {
       return generatedPage;
@@ -10773,7 +10802,15 @@
     if (isSectionIncluded("attachmentsPage") && proposal.attachments && proposal.attachments.length) {
       pages = pages.concat(buildAttachmentPageModels());
     }
-    return pages;
+    return ProposalTextFlow.prepare(pages, {
+      theme: currentThemeId(),
+      settings: proposal.textFrameBottoms || {},
+      render: function (page, pageNumber) {
+        return currentThemeId() === "northlinePortrait"
+          ? renderNorthlineModelPage(page, pageNumber)
+          : renderStructuredBodyPage(page, pageNumber, currentThemeId() === "studioPortrait");
+      }
+    });
   }
 
   function buildAttachmentPageModels() {
@@ -11300,7 +11337,7 @@
 
   function renderStudioQualificationsPage(page, pageNumber, photoType, pageKey, photo) {
     var stats = proposal.qualifications.stats.filter(function (item) {
-      return item && (item.value || item.label || item.detail);
+      return item && item.included !== false && (item.value || item.label || item.detail);
     }).slice(0, 4);
     return '<article class="proposal-page structured-page structured-page-studio studio-qualifications-page" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + '>' +
       '<div class="page-inner structured-page-inner studio-page-inner">' +
@@ -11560,7 +11597,7 @@
   function renderQualificationsPageHtml() {
     var sectionText = renderPageSectionText("ourQualifications");
     var stats = proposal.qualifications.stats.filter(function (item) {
-      return item && (item.value || item.label || item.detail);
+      return item && item.included !== false && (item.value || item.label || item.detail);
     });
     return '<p>' + escapeHtml(stripRedundantSentence(sectionText, proposal.qualifications.overview)) + '</p>' +
       '<div class="qualifications-page-grid">' + stats.map(function (stat) {
