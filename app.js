@@ -84,6 +84,7 @@
   var PHOTO_DB_NAME = "proposal-bot-photo-library-v1";
   var PHOTO_STORE_NAME = "photos";
   var PHOTO_PAN_SCALE = 1.1;
+  var photoFrameResizeSession = null;
   var activeTab = "info";
   var activeSectionId = "intro";
   var isDirty = false;
@@ -717,7 +718,17 @@
       adjustPreviewPhoto(button.dataset.photoKey, button.dataset.photoType, button.dataset.photoAction);
     });
 
+    els.preview.addEventListener("input", function (event) {
+      var control = event.target.closest("[data-photo-scale]");
+      if (control) setPreviewPhotoScale(control, false);
+    });
+
     els.preview.addEventListener("change", function (event) {
+      var control = event.target.closest("[data-photo-scale]");
+      if (control) {
+        setPreviewPhotoScale(control, true);
+        return;
+      }
       var select = event.target.closest("[data-photo-choice]");
       if (!select) {
         return;
@@ -764,6 +775,12 @@
       flashStatus("Photo replaced. Choose Hand to reposition it.");
     });
 
+    els.preview.addEventListener("pointerdown", beginPreviewPhotoFrameResize);
+    els.preview.addEventListener("keydown", keyPreviewPhotoFrameResize);
+    document.addEventListener("pointermove", movePreviewPhotoFrameResize);
+    document.addEventListener("pointerup", endPreviewPhotoFrameResize);
+    document.addEventListener("pointercancel", cancelPreviewPhotoFrameResize);
+    els.preview.addEventListener("lostpointercapture", endPreviewPhotoFrameResize);
     els.preview.addEventListener("pointerdown", beginPreviewPhotoPan);
     els.preview.addEventListener("pointermove", movePreviewPhotoPan);
     els.preview.addEventListener("pointerup", endPreviewPhotoPan);
@@ -960,6 +977,7 @@
     base.feeSchedule = base.feeSchedule || {};
     base.sectionOverrides = base.sectionOverrides || {};
     base.photoSelections = base.photoSelections || {};
+    base.photoFrameHeights = normalizePhotoFrameHeights(base.photoFrameHeights);
     base.photos = Array.isArray(base.photos) ? base.photos : [];
     if (base.photos.some(function (photo) { return photo.sample; })) {
       base.meta.samplePhotosSeeded = true;
@@ -1951,8 +1969,8 @@
       photo = choosePagePhotos(photoType, "northline-toc", ["main"])[0];
     }
     var seen = {};
-    var entries = pageModels.map(function (page, index) {
-      return { title: pageDisplayTitle(page), pageNumber: index + 2 };
+    var entries = pageModels.map(function (page) {
+      return { title: pageDisplayTitle(page) };
     }).filter(function (entry) {
       var key = normalizeTypology(entry.title);
       if (seen[key]) {
@@ -1966,8 +1984,8 @@
       renderNorthlinePhoto(photo, photoType, "northline-toc-photo", photoSlotKey("northline-toc", "main", photoType)) +
       '<section class="northline-toc-overlay">' +
       '<h2>Contents</h2>' +
-      '<div class="northline-toc-list">' + entries.map(function (entry) {
-        return '<div class="northline-toc-row"><span>' + escapeHtml(twoDigit(entry.pageNumber)) + '</span><strong>' + escapeHtml(entry.title) + '</strong></div>';
+      '<div class="northline-toc-list">' + entries.map(function (entry, index) {
+        return '<div class="northline-toc-row"><span>' + escapeHtml(twoDigit(index + 1)) + '</span><strong>' + escapeHtml(entry.title) + '</strong></div>';
       }).join("") + '</div>' +
       '</section>' +
       '<footer class="northline-toc-footer">Munoz + Albin / 01</footer>' +
@@ -2015,7 +2033,7 @@
     var photoType = page.photoType || "context";
     var pageKey = "northline-" + page.key + "-landscape";
     var photo = choosePagePhotos(photoType, pageKey, ["main"])[0];
-    return '<article class="proposal-page northline-page northline-landscape-page" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + '>' +
+    return '<article class="proposal-page northline-page northline-landscape-page" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + landscapePhotoPageStyle(pageKey, photoType) + '>' +
       '<div class="northline-inner">' +
       '<div class="northline-number">' + escapeHtml(twoDigit(pageNumber)) + '</div>' +
       '<section class="northline-flow-column northline-landscape-flow-column">' +
@@ -3301,7 +3319,8 @@
     return {
       photoId: selection.photoId || "",
       x: Number.isFinite(Number(selection.x)) ? Number(selection.x) : 50,
-      y: Number.isFinite(Number(selection.y)) ? Number(selection.y) : 50
+      y: Number.isFinite(Number(selection.y)) ? Number(selection.y) : 50,
+      scale: normalizePhotoScale(selection.scale)
     };
   }
 
@@ -3310,14 +3329,141 @@
     var historyState = photoHistoryState(slotKey);
     var position = clampPercent(selection.x) + "% " + clampPercent(selection.y) + "%";
     var panActive = activePhotoPanKey === slotKey;
-    return '<img class="page-photo" draggable="false" data-photo-key="' + escapeHtml(slotKey) + '" data-photo-type="' + escapeHtml(type || "") + '" style="object-position:' + escapeHtml(position) + ';transform:scale(' + PHOTO_PAN_SCALE + ');transform-origin:' + escapeHtml(position) + ';" src="' + photo.dataUrl + '" alt="' + escapeHtml(photo.name) + '">' +
+    return '<img class="page-photo" draggable="false" data-photo-key="' + escapeHtml(slotKey) + '" data-photo-type="' + escapeHtml(type || "") + '" style="object-position:' + escapeHtml(position) + ';transform:scale(' + selection.scale + ');transform-origin:' + escapeHtml(position) + ';" src="' + photo.dataUrl + '" alt="' + escapeHtml(photo.name) + '">' +
       '<div class="photo-slot-tools" aria-label="Photo controls">' +
       '<label class="photo-choice-control"><span>Image</span><select data-photo-choice="image" data-photo-key="' + escapeHtml(slotKey) + '" data-photo-type="' + escapeHtml(type || "") + '">' + renderPhotoChoiceOptions(selection.photoId || photo.id) + '</select></label>' +
+      '<label class="photo-scale-control"><span>Scale</span><input type="range" min="100" max="300" step="5" title="100% fills the image box; increase to zoom in" value="' + Math.round(selection.scale * 100) + '" aria-label="Image scale" data-photo-scale data-photo-key="' + escapeHtml(slotKey) + '"><output>' + Math.round(selection.scale * 100) + '%</output></label>' +
       '<button type="button" class="photo-hand-tool' + (panActive ? " active" : "") + '" title="Move the image inside its frame" aria-pressed="' + (panActive ? "true" : "false") + '" data-photo-action="hand" data-photo-key="' + escapeHtml(slotKey) + '" data-photo-type="' + escapeHtml(type || "") + '">&#9995; Hand</button>' +
       '<button type="button" title="Go back to previous image" data-photo-action="back" data-photo-key="' + escapeHtml(slotKey) + '" data-photo-type="' + escapeHtml(type || "") + '"' + (historyState.back.length ? "" : " disabled") + '>Back</button>' +
       '<button type="button" title="Go forward to next image" data-photo-action="forward" data-photo-key="' + escapeHtml(slotKey) + '" data-photo-type="' + escapeHtml(type || "") + '"' + (historyState.forward.length ? "" : " disabled") + '>Forward</button>' +
       '<button type="button" title="Swap image" data-photo-action="swap" data-photo-key="' + escapeHtml(slotKey) + '" data-photo-type="' + escapeHtml(type || "") + '">Swap</button>' +
       '</div>';
+  }
+
+  function normalizePhotoScale(value) {
+    var scale = Number(value);
+    return Number.isFinite(scale) && scale > 0 ? Math.max(1, Math.min(3, Math.round(scale * 100) / 100)) : PHOTO_PAN_SCALE;
+  }
+
+  function setPreviewPhotoScale(control, commit) {
+    var slot = control.closest(".editable-photo-slot");
+    var image = slot && slot.querySelector("img.page-photo");
+    if (!image) return;
+    var scale = normalizePhotoScale(Number(control.value) / 100);
+    control.value = Math.round(scale * 100);
+    image.style.transform = "scale(" + scale + ")";
+    var output = control.parentElement.querySelector("output");
+    if (output) output.textContent = Math.round(scale * 100) + "%";
+    if (commit) {
+      var selection = photoSelectionForSlot(control.dataset.photoKey);
+      selection.scale = scale;
+      if (updatePreviewPhotoSelection(control.dataset.photoKey, selection, true)) {
+        markDirty();
+        saveCurrentDraft();
+        var back = slot.querySelector('[data-photo-action="back"]');
+        var forward = slot.querySelector('[data-photo-action="forward"]');
+        if (back) back.disabled = false;
+        if (forward) forward.disabled = true;
+      }
+    }
+  }
+
+  function normalizePhotoFrameHeight(value, fallback) {
+    var height = Number(value);
+    return Number.isFinite(height) && height > 0 ? Math.max(0.75, Math.min(6.5, Math.round(height * 100) / 100)) : (fallback || 3.12);
+  }
+
+  function normalizePhotoFrameHeights(value) {
+    var normalized = {};
+    if (value && typeof value === "object") {
+      Object.keys(value).forEach(function (key) {
+        if (Number.isFinite(Number(value[key])) && Number(value[key]) > 0) normalized[key] = normalizePhotoFrameHeight(value[key]);
+      });
+    }
+    return normalized;
+  }
+
+  function landscapePhotoPageStyle(pageKey, photoType, fallback) {
+    var key = photoSlotKey(pageKey, "main", photoType);
+    var heights = proposal.photoFrameHeights || {};
+    return ' style="--photo-frame-height:' + normalizePhotoFrameHeight(heights[key], fallback) + 'in;"';
+  }
+
+  function renderPhotoFrameResizeHandle(slotKey, defaultHeight) {
+    var heights = proposal.photoFrameHeights || {};
+    var height = normalizePhotoFrameHeight(heights[slotKey], defaultHeight);
+    return '<div class="photo-frame-resize-handle" role="separator" tabindex="0" aria-label="Resize image box; drag up or down, or use arrow keys" aria-orientation="horizontal" aria-valuemin="0.75" aria-valuemax="6.5" aria-valuenow="' + height + '" aria-valuetext="' + height + ' inches" data-photo-frame-key="' + escapeHtml(slotKey) + '"><span>Drag to resize image box</span></div>';
+  }
+
+  function applyPreviewPhotoFrameHeight(handle, height) {
+    var page = handle.closest(".proposal-page");
+    page.style.setProperty("--photo-frame-height", height + "in");
+    handle.setAttribute("aria-valuenow", height);
+    handle.setAttribute("aria-valuetext", height + " inches");
+  }
+
+  function savePreviewPhotoFrameHeight(handle, height) {
+    proposal.photoFrameHeights = normalizePhotoFrameHeights(proposal.photoFrameHeights);
+    proposal.photoFrameHeights[handle.dataset.photoFrameKey] = height;
+    markDirty();
+    saveCurrentDraft();
+  }
+
+  function beginPreviewPhotoFrameResize(event) {
+    var handle = event.target.closest(".photo-frame-resize-handle");
+    if (!handle || (event.button !== undefined && event.button !== 0)) return;
+    var page = handle.closest(".proposal-page");
+    var pageRect = page.getBoundingClientRect();
+    photoFrameResizeSession = {
+      handle: handle, pointerId: event.pointerId, startY: event.clientY,
+      startHeight: Number(handle.getAttribute("aria-valuenow")),
+      currentHeight: Number(handle.getAttribute("aria-valuenow")),
+      pixelsPerInch: pageRect.height / (page.offsetHeight / 96)
+    };
+    handle.setPointerCapture(event.pointerId);
+    page.classList.add("is-photo-frame-resizing");
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function movePreviewPhotoFrameResize(event) {
+    var session = photoFrameResizeSession;
+    if (!session || event.pointerId !== session.pointerId) return;
+    session.currentHeight = normalizePhotoFrameHeight(session.startHeight - (event.clientY - session.startY) / session.pixelsPerInch);
+    applyPreviewPhotoFrameHeight(session.handle, session.currentHeight);
+    event.preventDefault();
+  }
+
+  function finishPreviewPhotoFrameResize(event, cancel) {
+    var session = photoFrameResizeSession;
+    if (!session || (event.pointerId !== undefined && event.pointerId !== session.pointerId)) return;
+    photoFrameResizeSession = null;
+    session.handle.closest(".proposal-page").classList.remove("is-photo-frame-resizing");
+    if (session.handle.hasPointerCapture(session.pointerId)) session.handle.releasePointerCapture(session.pointerId);
+    if (cancel) {
+      applyPreviewPhotoFrameHeight(session.handle, session.startHeight);
+    } else if (session.currentHeight !== session.startHeight) {
+      savePreviewPhotoFrameHeight(session.handle, session.currentHeight);
+    }
+  }
+
+  function endPreviewPhotoFrameResize(event) {
+    finishPreviewPhotoFrameResize(event, false);
+  }
+
+  function cancelPreviewPhotoFrameResize(event) {
+    finishPreviewPhotoFrameResize(event, true);
+  }
+
+  function keyPreviewPhotoFrameResize(event) {
+    var handle = event.target.closest(".photo-frame-resize-handle");
+    if (!handle || !/^(ArrowUp|ArrowDown|Home)$/.test(event.key)) return;
+    var height = event.key === "Home" ? Number(handle.closest("figure").dataset.defaultFrameHeight) :
+      Number(handle.getAttribute("aria-valuenow")) + (event.key === "ArrowUp" ? 1 : -1) * (event.shiftKey ? 0.5 : 0.1);
+    height = normalizePhotoFrameHeight(height);
+    applyPreviewPhotoFrameHeight(handle, height);
+    savePreviewPhotoFrameHeight(handle, height);
+    event.preventDefault();
   }
 
   function renderPhotoChoiceOptions(selectedPhotoId) {
@@ -3533,8 +3679,8 @@
       startSelection: selection,
       currentX: selection.x,
       currentY: selection.y,
-      overflowX: Math.max(0, naturalWidth * coverScale * PHOTO_PAN_SCALE - frame.width),
-      overflowY: Math.max(0, naturalHeight * coverScale * PHOTO_PAN_SCALE - frame.height)
+      overflowX: naturalWidth * coverScale * selection.scale - frame.width,
+      overflowY: naturalHeight * coverScale * selection.scale - frame.height
     };
     image.setPointerCapture(event.pointerId);
     slot.classList.add("is-photo-panning");
@@ -3548,10 +3694,10 @@
     }
     var deltaX = event.clientX - session.startClientX;
     var deltaY = event.clientY - session.startClientY;
-    session.currentX = session.overflowX > 0.5
+    session.currentX = Math.abs(session.overflowX) > 0.5
       ? clampPercent(session.startSelection.x - (deltaX / session.overflowX * 100))
       : session.startSelection.x;
-    session.currentY = session.overflowY > 0.5
+    session.currentY = Math.abs(session.overflowY) > 0.5
       ? clampPercent(session.startSelection.y - (deltaY / session.overflowY * 100))
       : session.startSelection.y;
     session.image.style.objectPosition = session.currentX + "% " + session.currentY + "%";
@@ -3572,7 +3718,8 @@
     var changed = updatePreviewPhotoSelection(session.image.dataset.photoKey, {
       photoId: session.startSelection.photoId,
       x: session.currentX,
-      y: session.currentY
+      y: session.currentY,
+      scale: session.startSelection.scale
     }, true);
     if (changed) {
       markDirty();
@@ -3634,7 +3781,7 @@
 
   function clonePhotoSelectionSnapshot(selection) {
     var normalized = normalizePhotoSelectionSnapshot(selection);
-    return normalized ? { photoId: normalized.photoId, x: normalized.x, y: normalized.y } : null;
+    return normalized ? { photoId: normalized.photoId, x: normalized.x, y: normalized.y, scale: normalized.scale } : null;
   }
 
   function updatePreviewPhotoSelection(slotKey, nextSelection, trackHistory) {
@@ -3643,7 +3790,7 @@
     if (!next) {
       return false;
     }
-    if (previous && previous.photoId === next.photoId && previous.x === next.x && previous.y === next.y) {
+    if (previous && previous.photoId === next.photoId && previous.x === next.x && previous.y === next.y && previous.scale === next.scale) {
       return false;
     }
     if (trackHistory) {
@@ -6223,7 +6370,7 @@
       var response = await fetch(inDesignExportEndpoint(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildInDesignExportPayload(pageNodes))
+        body: JSON.stringify(await buildInDesignExportPayload(pageNodes))
       });
       if (!response.ok) {
         throw new Error(await response.text() || "InDesign export service failed.");
@@ -6235,40 +6382,45 @@
       document.documentElement.setAttribute("data-indesign-export-error", error && (error.stack || error.message || String(error)) || "Unknown InDesign export error");
       console.error(error);
       flashStatus("InDesign export failed.");
-      window.alert("The InDesign export could not be built from the current formatted proposal. Open the app from the local Proposal Bot server and try again.");
+      window.alert("The InDesign export could not be built from the current formatted proposal.\n\n" + (error && error.message || "Reload the proposal and try again."));
     }
   }
 
-  function buildInDesignExportPayload(pageNodes) {
+  async function buildInDesignExportPayload(pageNodes) {
     var pagePixels = currentInDesignPagePixelSize();
+    var imageCache = new Map();
+    var pages = [];
+    for (var node of pageNodes) {
+      pages.push({
+        html: await buildInDesignPageHtml(node, pagePixels, imageCache),
+        width: pagePixels.width,
+        height: pagePixels.height
+      });
+    }
     return {
       filenameBase: filenameBase(),
       baseUrl: window.location.href,
       bodyClasses: inDesignExportBodyClasses(),
       stylesText: collectDocumentCssText(),
       pageSize: currentInDesignPageSize(),
-      pages: pageNodes.map(function (node) {
-        return {
-          html: buildInDesignPageHtml(node, pagePixels),
-          width: pagePixels.width,
-          height: pagePixels.height
-        };
-      })
+      pages: pages
     };
   }
 
-  function buildInDesignPageHtml(node, pagePixels) {
+  async function buildInDesignPageHtml(node, pagePixels, imageCache) {
     var clone = node.cloneNode(true);
-    clone.querySelectorAll(".photo-slot-tools").forEach(function (toolNode) {
+    clone.querySelectorAll(".photo-slot-tools, .photo-frame-resize-handle").forEach(function (toolNode) {
       toolNode.remove();
     });
-    clone.querySelectorAll("img").forEach(function (image) {
+    for (var image of clone.querySelectorAll("img")) {
       var src = image.getAttribute("src") || "";
       if (src) {
-        image.setAttribute("src", absoluteExportAssetUrl(src));
+        image.setAttribute("src", await inDesignImageDataUrl(src, imageCache));
       }
       image.removeAttribute("srcset");
-    });
+      image.removeAttribute("crossorigin");
+      image.setAttribute("loading", "eager");
+    }
     clone.style.margin = "0";
     clone.style.width = pagePixels.width + "px";
     clone.style.height = pagePixels.height + "px";
@@ -6278,6 +6430,27 @@
     clone.style.boxShadow = "none";
     clone.style.border = "0";
     return clone.outerHTML;
+  }
+
+  async function inDesignImageDataUrl(src, imageCache) {
+    if (/^data:image\//i.test(src)) {
+      return src;
+    }
+    var url = absoluteExportAssetUrl(src);
+    if (!imageCache.has(url)) {
+      imageCache.set(url, (async function () {
+        var response = await fetch(url, { credentials: "same-origin" });
+        if (!response.ok) {
+          throw new Error("A proposal image could not be included in the InDesign package (HTTP " + response.status + ").");
+        }
+        var blob = await response.blob();
+        if (!/^image\//i.test(blob.type) || !blob.size) {
+          throw new Error("A proposal image could not be included in the InDesign package. Reload the proposal and try again.");
+        }
+        return blobToDataUrl(blob);
+      })());
+    }
+    return imageCache.get(url);
   }
 
   function absoluteExportAssetUrl(value) {
@@ -6319,7 +6492,7 @@
     var width = Math.max(1, Math.round(rect.width));
     var height = Math.max(1, Math.round(rect.height));
     var clone = element.cloneNode(true);
-    clone.querySelectorAll(".photo-slot-tools").forEach(function (node) {
+    clone.querySelectorAll(".photo-slot-tools, .photo-frame-resize-handle").forEach(function (node) {
       node.remove();
     });
     clone.style.margin = "0";
@@ -6739,6 +6912,10 @@
     return new Blob([html], { type: "application/msword" });
   }
 
+  function photoSizingLayoutCss() {
+    return ".northline-landscape-photo,.structured-landscape-photo,.studio-landscape-photo{height:var(--photo-frame-height,3.12in)!important;}\n.northline-landscape-flow-column{bottom:calc(var(--photo-frame-height,3.12in) + .3in);}\n.northline-landscape-content{bottom:calc(var(--photo-frame-height,3.12in) + .3in);}\n.structured-page-landscape-photo .structured-landscape-text-column{bottom:calc(var(--photo-frame-height,3.12in) + .36in);}\n.studio-landscape-copy-column{height:auto;bottom:calc(var(--photo-frame-height,3.12in) + .36in);}\n.structured-page-landscape-photo .proposal-footer,.studio-landscape-page .studio-page-footer,.studio-schedule-page .studio-page-footer,.studio-fee-page .studio-page-footer{bottom:calc(var(--photo-frame-height,3.12in) + .22in)!important;}\n.structured-page-landscape-photo .structured-landscape-text-column{left:.54in;right:.54in;width:auto;display:flex;flex-direction:column;overflow:hidden;}\n.structured-page-landscape-photo .structured-page-header{flex:0 0 auto;}\n.structured-page-landscape-photo .structured-landscape-copy{flex:1 1 auto;min-height:0;}\n";
+  }
+
   function wordExportStyles() {
     return [
       '@font-face{font-family:"Source Sans 3";src:url("' + new URL("assets/fonts/SourceSans3-Regular.otf", window.location.href).href + '") format("opentype");font-weight:400;}',
@@ -6936,7 +7113,7 @@
       '.is-intro-page .photo-slot-top{height:1.96in;}',
       '.is-intro-page .photo-slot-bottom{height:3.94in;margin-top:.28in;}',
       '.page-photo{width:100%;height:100%;object-fit:cover;display:block;}',
-      '.photo-slot-tools{display:none!important;}',
+      '.photo-slot-tools,.photo-frame-resize-handle{display:none!important;}',
       '.photo-placeholder{background:#e7e1d7;color:#8c867c;text-align:center;font-weight:bold;font-size:12px;letter-spacing:.08em;text-transform:uppercase;}',
       '.photo-placeholder span{display:block;margin-top:45%;}',
       '.page-content{position:absolute;left:4in;top:1.1in;width:3.86in;height:9.1in;overflow:hidden;}',
@@ -7038,7 +7215,8 @@
       '.attachment-theme-modern .attachment-page-image{background:#f8f6f1;}',
       '.attachment-theme-modern .attachment-page-footer{left:.44in;right:.44in;bottom:.26in;}',
       '.attachment-placeholder{border:1px solid #d9d5ce;background:#fbfaf8;color:#6f6a61;padding:14px;}',
-      '.attachment-placeholder-subtitle{display:block;margin-top:4px;font-weight:400;}'
+      '.attachment-placeholder-subtitle{display:block;margin-top:4px;font-weight:400;}',
+      photoSizingLayoutCss()
     ].join("");
   }
 
@@ -7455,6 +7633,7 @@
     base.savedSectionInputs = base.savedSectionInputs || {};
     base.notes = String(base.notes || "");
     base.photoSelections = base.photoSelections || {};
+    base.photoFrameHeights = normalizePhotoFrameHeights(base.photoFrameHeights);
     base.photoSelectionHistory = normalizePhotoSelectionHistory(base.photoSelectionHistory);
     base.photos = Array.isArray(base.photos) ? base.photos : [];
     if (base.photos.some(function (photo) { return photo.sample; })) {
@@ -7883,7 +8062,8 @@
     return {
       photoId: String(value.photoId || ""),
       x: Number.isFinite(Number(value.x)) ? Number(value.x) : 50,
-      y: Number.isFinite(Number(value.y)) ? Number(value.y) : 50
+      y: Number.isFinite(Number(value.y)) ? Number(value.y) : 50,
+      scale: normalizePhotoScale(value.scale)
     };
   }
 
@@ -10075,7 +10255,7 @@
   }
 
   function renderLandscapeLayoutCard(sectionId) {
-    var card = panelCard("Page Image Layout", "Keep the same theme, but switch this page to a wide landscape image.");
+    var card = panelCard("Page Image Layout", "Keep the same theme, but switch this page to a wide image. Drag the top edge of the image box in the preview to resize it.");
     var toggleRow = document.createElement("label");
     toggleRow.className = "inline-check";
     var checkbox = document.createElement("input");
@@ -10928,8 +11108,8 @@
       photo = choosePagePhotos(photoType, "structured-toc", ["main"])[0];
     }
     var seen = {};
-    var entries = pageModels.map(function (page, index) {
-      return { title: pageDisplayTitle(page), pageNumber: index + 2 };
+    var entries = pageModels.map(function (page) {
+      return { title: pageDisplayTitle(page) };
     }).filter(function (entry) {
       var key = normalizeTypology(entry.title);
       if (seen[key]) {
@@ -10946,8 +11126,8 @@
       photoHtml +
       '<section class="studio-toc-overlay">' +
       '<h2>Contents</h2>' +
-      '<div class="studio-toc-list">' + entries.map(function (entry) {
-        return '<div class="studio-toc-row"><span>' + escapeHtml(twoDigit(entry.pageNumber)) + '</span><strong>' + escapeHtml(entry.title) + '</strong></div>';
+      '<div class="studio-toc-list">' + entries.map(function (entry, index) {
+        return '<div class="studio-toc-row"><span>' + escapeHtml(twoDigit(index + 1)) + '</span><strong>' + escapeHtml(entry.title) + '</strong></div>';
       }).join("") + '</div>' +
       '</section>' +
       '<footer class="proposal-footer studio-page-footer studio-page-footer-light"><div>Munoz + Albin</div><div>01</div></footer>' +
@@ -11031,7 +11211,7 @@
     var photoType = page.photoType || "context";
     var pageKey = page.key + "-landscape";
     var photo = choosePagePhotos(photoType, pageKey, ["main"])[0];
-    return '<article class="proposal-page structured-page structured-page-landscape-photo" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + '>' +
+    return '<article class="proposal-page structured-page structured-page-landscape-photo" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + landscapePhotoPageStyle(pageKey, photoType) + '>' +
       '<div class="page-inner structured-page-inner">' +
       '<div class="body-page-number">' + escapeHtml(pageNumber) + '</div>' +
       '<section class="structured-text-column structured-landscape-text-column">' +
@@ -11089,7 +11269,7 @@
   function renderStudioLandscapeBodyPage(page, pageNumber, photoType) {
     var pageKey = "studio-" + page.key + "-landscape";
     var photo = choosePagePhotos(photoType, pageKey, ["main"])[0];
-    return '<article class="proposal-page structured-page structured-page-studio studio-landscape-page" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + '>' +
+    return '<article class="proposal-page structured-page structured-page-studio studio-landscape-page" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + landscapePhotoPageStyle(pageKey, photoType) + '>' +
       '<div class="page-inner structured-page-inner studio-page-inner">' +
       '<div class="studio-page-number">' + escapeHtml(twoDigit(pageNumber)) + '</div>' +
       '<section class="studio-header-block studio-header-block-wide">' +
@@ -11186,7 +11366,7 @@
   function renderStudioSchedulePage(page, pageNumber, photoType, pageKey, photo) {
     var schedulePageKey = pageKey + "-schedule";
     photo = choosePagePhotos(photoType, schedulePageKey, ["main"])[0];
-    return '<article class="proposal-page structured-page structured-page-studio studio-schedule-page" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + '>' +
+    return '<article class="proposal-page structured-page structured-page-studio studio-schedule-page" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + landscapePhotoPageStyle(schedulePageKey, photoType, 3.2) + '>' +
       '<div class="page-inner structured-page-inner studio-page-inner">' +
       '<div class="studio-page-number">' + escapeHtml(twoDigit(pageNumber)) + '</div>' +
       '<section class="studio-header-block studio-header-block-wide"><h2>' + escapeHtml(pageDisplayTitle(page)) + '</h2><div class="studio-header-rule"></div></section>' +
@@ -11200,7 +11380,7 @@
   function renderStudioCompensationThemePage(page, pageNumber, photoType, pageKey, photo) {
     var compensationPageKey = pageKey + "-fee";
     photo = choosePagePhotos(photoType, compensationPageKey, ["main"])[0];
-    return '<article class="proposal-page structured-page structured-page-studio studio-fee-page" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + '>' +
+    return '<article class="proposal-page structured-page structured-page-studio studio-fee-page" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + landscapePhotoPageStyle(compensationPageKey, photoType, 3.2) + '>' +
       '<div class="page-inner structured-page-inner studio-page-inner">' +
       '<div class="studio-page-number">' + escapeHtml(twoDigit(pageNumber)) + '</div>' +
       '<section class="studio-header-block studio-header-block-wide"><h2>' + escapeHtml(pageDisplayTitle(page)) + '</h2><div class="studio-header-rule"></div></section>' +
@@ -11238,10 +11418,13 @@
 
   function renderLandscapePagePhoto(photo, photoType, pageKey, className) {
     var slotKey = photoSlotKey(pageKey, "main", photoType);
+    var defaultHeight = /studio-(?:schedule|fee)-landscape-photo/.test(className) ? 3.2 : 3.12;
+    var handle = renderPhotoFrameResizeHandle(slotKey, defaultHeight);
+    var attributes = ' data-default-frame-height="' + defaultHeight + '"';
     if (photo) {
-      return '<figure class="' + className + ' editable-photo-slot">' + renderEditablePhotoImage(photo, photoType, slotKey) + '</figure>';
+      return '<figure class="' + className + ' editable-photo-slot"' + attributes + '>' + renderEditablePhotoImage(photo, photoType, slotKey) + handle + '</figure>';
     }
-    return '<figure class="' + className + ' photo-placeholder"><span>' + escapeHtml(photoType || "project") + '<br>photo</span></figure>';
+    return '<figure class="' + className + ' photo-placeholder"' + attributes + '><span>' + escapeHtml(photoType || "project") + '<br>photo</span>' + handle + '</figure>';
   }
 
   function studioProcessSteps() {

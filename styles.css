@@ -4621,3 +4621,80 @@ input[type="file"] {
     height: 11in !important;
   }
 }
+
+
+/* Photo sizing controls and adjustable wide image boxes. */
+.photo-scale-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border: 1px solid rgba(255,255,255,.72);
+  border-radius: 6px;
+  background: rgba(34,31,27,.88);
+  color: #fff;
+  font: 10px/1 Arial, sans-serif;
+}
+.photo-scale-control input[type="range"] {
+  width: 100px;
+  min-height: 22px;
+  margin: 0;
+  padding: 0;
+  accent-color: #fff;
+}
+.photo-scale-control output { min-width: 32px; color: #fff; }
+.photo-frame-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 20px;
+  z-index: 9;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  border-top: 2px solid rgba(255,255,255,.7);
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+.photo-frame-resize-handle span {
+  padding: 4px 12px 5px;
+  border-radius: 0 0 6px 6px;
+  background: rgba(34,31,27,.88);
+  color: #fff;
+  font: 10px/1 Arial, sans-serif;
+  opacity: 0;
+  transition: opacity .16s ease;
+}
+.photo-frame-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  width: 46px;
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(255,255,255,.9);
+  box-shadow: 0 0 2px rgba(0,0,0,.65);
+}
+figure:hover > .photo-frame-resize-handle span,
+.photo-frame-resize-handle:focus-visible span,
+.is-photo-frame-resizing .photo-frame-resize-handle span { opacity: 1; }
+figure:hover > .photo-frame-resize-handle::after,
+.photo-frame-resize-handle:focus-visible::after,
+.is-photo-frame-resizing .photo-frame-resize-handle::after { opacity: 0; }
+.photo-frame-resize-handle:focus-visible { outline: 3px solid var(--brand-2); outline-offset: -3px; }
+.is-photo-frame-resizing { user-select: none; cursor: ns-resize; }
+
+.northline-landscape-photo,.structured-landscape-photo,.studio-landscape-photo{height:var(--photo-frame-height,3.12in)!important;}
+.northline-landscape-flow-column{bottom:calc(var(--photo-frame-height,3.12in) + .3in);}
+.northline-landscape-content{bottom:calc(var(--photo-frame-height,3.12in) + .3in);}
+.structured-page-landscape-photo .structured-landscape-text-column{bottom:calc(var(--photo-frame-height,3.12in) + .36in);}
+.studio-landscape-copy-column{height:auto;bottom:calc(var(--photo-frame-height,3.12in) + .36in);}
+.structured-page-landscape-photo .proposal-footer,.studio-landscape-page .studio-page-footer,.studio-schedule-page .studio-page-footer,.studio-fee-page .studio-page-footer{bottom:calc(var(--photo-frame-height,3.12in) + .22in)!important;}
+
+@media print { .photo-frame-resize-handle { display:none!important; } }
+
+.structured-page-landscape-photo .structured-landscape-text-column{left:.54in;right:.54in;width:auto;display:flex;flex-direction:column;overflow:hidden;}
+.structured-page-landscape-photo .structured-page-header{flex:0 0 auto;}
+.structured-page-landscape-photo .structured-landscape-copy{flex:1 1 auto;min-height:0;}

@@ -1,0 +1,82 @@
+<!doctype html><html><head><style>__CSS__</style></head><body>
+<div id="preview" class="proposal-document theme-structured-portrait" style="zoom:.75"></div>
+<script>
+__FUNCTIONS__
+var PHOTO_PAN_SCALE=1.1,photoFrameResizeSession=null,photoPanSession=null,activePhotoPanKey='key',saves=0;
+var photo={id:'image',name:'Test image',dataUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='};
+var proposal={photoSelections:{key:{photoId:'image',x:35,y:65}},photoFrameHeights:{}};
+function escapeHtml(s){return String(s||'');} function renderPhotoChoiceOptions(){return '<option>Image</option>';}
+function photoSlotKey(){return 'key';} function choosePagePhotos(){return [photo];}
+function pageSectionIdsAttribute(){return '';} function pageDisplayTitle(p){return p.header;}
+function formattedPageHeaderTitle(s){return s;} function proposalPageSubtitle(){return '';}
+function markDirty(){} function saveCurrentDraft(){saves++;}
+function check(value,message){if(!value)throw Error(message);}
+function near(a,b){return Math.abs(a-b)<1.1;}
+function pointer(target,y){return {target:target,pointerId:1,button:0,clientX:0,clientY:y,preventDefault:function(){},stopPropagation:function(){}};}
+function captureStub(el){el.setPointerCapture=function(){};el.hasPointerCapture=function(){return false;};}
+async function run(){
+  var preview=document.getElementById('preview');
+  preview.innerHTML=renderStructuredLandscapeBodyPage({key:'test',header:'Concept Design',content:function(){return '<p>Editable project text above the image.</p>';}},1);
+  var image=preview.querySelector('img'); await image.decode(); captureStub(image);
+  var control=preview.querySelector('[data-photo-scale]'); control.value='175';
+  setPreviewPhotoScale(control,false);check(image.style.transform==='scale(1.75)','Live image scale');
+  check(photoSelectionForSlot('key').scale===1.1,'No premature save');
+  setPreviewPhotoScale(control,true);check(photoSelectionForSlot('key').scale===1.75,'Scale saved');
+  check(saves===1,'Saved scale once');
+  var handle=preview.querySelector('.photo-frame-resize-handle'); captureStub(handle);
+  var page=handle.closest('.proposal-page'),frame=handle.closest('figure');
+  var initial=frame.getBoundingClientRect().height;
+  var pixelsPerInch=page.getBoundingClientRect().height/(page.offsetHeight/96);
+  beginPreviewPhotoFrameResize(pointer(handle,400));
+  movePreviewPhotoFrameResize(pointer(handle,400-pixelsPerInch));
+  check(near(frame.getBoundingClientRect().height-initial,pixelsPerInch),'Drag up enlarges frame at preview zoom');
+  endPreviewPhotoFrameResize(pointer(handle,400-pixelsPerInch));
+  check(proposal.photoFrameHeights.key===4.12,'Frame saved');
+  var text=page.querySelector('.structured-landscape-text-column').getBoundingClientRect();
+  check(text.bottom<frame.getBoundingClientRect().top,'Text stays above the image');
+  beginPreviewPhotoFrameResize(pointer(handle,400));movePreviewPhotoFrameResize(pointer(handle,480));
+  cancelPreviewPhotoFrameResize(pointer(handle,480));
+  check(Number(handle.getAttribute('aria-valuenow'))===4.12,'Cancel restores frame');
+  keyPreviewPhotoFrameResize({target:handle,key:'ArrowDown',shiftKey:false,preventDefault:function(){}});
+  check(proposal.photoFrameHeights.key===4.02,'Keyboard resizes frame');
+  var saved=JSON.parse(JSON.stringify(proposal));proposal=saved;
+  check(landscapePhotoPageStyle('test','context').includes('4.02in'),'Saved frame renders after reload');
+  control.value='50';setPreviewPhotoScale(control,true);
+  check(photoSelectionForSlot('key').scale===1,'Zooming out stops at full-box fit');
+  check(control.value==='100','Control reports the minimum full-box fit');
+  function checkFilled(){
+    var box=frame.getBoundingClientRect(),photoRect=image.getBoundingClientRect();
+    check(photoRect.left<=box.left+1&&photoRect.top<=box.top+1&&photoRect.right>=box.right-1&&photoRect.bottom>=box.bottom-1,'Photo always fills the frame');
+  }
+  checkFilled();
+  beginPreviewPhotoPan(pointer(image,400));
+  var startY=photoSelectionForSlot('key').y;
+  movePreviewPhotoPan({pointerId:1,clientX:0,clientY:420,preventDefault:function(){}});
+  endPreviewPhotoPan(pointer(image,420));
+  check(photoSelectionForSlot('key').scale===1,'Panning retains full-box fit');
+  check(photoSelectionForSlot('key').y<startY,'Fitted image can still be panned');
+  checkFilled();
+  [0,100].forEach(function(position){
+    image.style.objectPosition=position+'% '+position+'%';image.style.transformOrigin=position+'% '+position+'%';
+    [0.75,6.5].forEach(function(height){applyPreviewPhotoFrameHeight(handle,height);checkFilled();});
+  });
+  applyPreviewPhotoFrameHeight(handle,4.02);
+  // Export uses full-size CSS pixels, independent of dashboard zoom.
+  preview.style.zoom='1';page.style.border='0';control.value='175';setPreviewPhotoScale(control,true);
+  preview.querySelector('.photo-slot-tools').remove();handle.remove();
+  var probe=document.createElement('div');probe.style.cssText='position:fixed;left:0;top:0;opacity:0;pointer-events:none';document.body.appendChild(probe);
+  var model={key:'test',header:'Concept Design',content:function(){return '<p>Project text</p>';}};
+  [
+    function(){return renderNorthlineLandscapeModelPage(model,1);},
+    function(){return renderStudioLandscapeBodyPage(model,1,'context');},
+    function(){return renderStudioSchedulePage(model,1,'context','test',photo);},
+    function(){return renderStudioCompensationThemePage(model,1,'context','test',photo);}
+  ].forEach(function(render){
+    probe.innerHTML=render();var probePage=probe.querySelector('.proposal-page');probePage.style.contentVisibility='visible';
+    var probeFrame=probe.querySelector('.photo-frame-resize-handle').closest('figure');
+    check(near(probeFrame.getBoundingClientRect().height,4.02*96),'All wide-photo themes restore frame height');
+  });probe.remove();
+  var pre=document.createElement('pre');pre.id='test-result';pre.textContent='passed';document.body.appendChild(pre);
+}
+run().then(function(){ __EXTRACTION__ }).catch(function(error){document.body.setAttribute('data-test-error',error.stack||error.message);});
+</script></body></html>

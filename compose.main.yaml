@@ -1,9 +1,9 @@
-# Main storage configuration: reuse the existing app image and external read-only SMB image volume.
+# Main storage configuration: GitHub release image and external read-only SMB image volume.
 # Every setting below comes from the stack's environment variables (Portainer) or a .env file (CLI).
 services:
   proposal-bot:
-    image: proposal-bot:latest
-    pull_policy: never
+    image: ghcr.io/tcurrellma/proposalbot:latest
+    pull_policy: always
     container_name: proposal-bot
     restart: unless-stopped
     # Reaps the headless Chromium processes the InDesign export starts.
