@@ -50,6 +50,16 @@
   function blocksFromHtml(html) {
     var host = document.createElement("div");
     host.innerHTML = html;
+    // A continued unordered list can arrive in separate page fragments. Join
+    // adjacent fragments so their list margins do not become extra bullet gaps.
+    Array.from(host.children).forEach(function (node) {
+      var previous = node.previousElementSibling;
+      if (node.tagName === "UL" && previous && previous.tagName === "UL" &&
+          node.cloneNode(false).isEqualNode(previous.cloneNode(false))) {
+        while (node.firstChild) previous.appendChild(node.firstChild);
+        node.remove();
+      }
+    });
     var blocks = [];
     Array.from(host.childNodes).forEach(function (node, listId) {
       if (!node.textContent.trim() && node.nodeType !== 1) return;
@@ -58,7 +68,7 @@
           blocks.push({ node: item.cloneNode(true), list: node.cloneNode(false), listId: listId, ordinal: Number(node.getAttribute("start") || 1) + index });
         });
       } else {
-        blocks.push({ node: node.cloneNode(true), heading: node.nodeType === 1 && (/^H[1-6]$/.test(node.tagName) || (node.querySelector("strong,b") && node.querySelector("strong,b").textContent.trim() === node.textContent.trim())) });
+        blocks.push({ node: node.cloneNode(true), heading: node.nodeType === 1 && (/^H[1-6]$/.test(node.tagName) || node.classList.contains("paragraph-heading") || (node.querySelector("strong,b") && node.querySelector("strong,b").textContent.trim() === node.textContent.trim())) });
       }
     });
     return blocks;
@@ -114,7 +124,7 @@
         if (!supported(first, theme)) { output.push(first); continue; }
         var group = [first];
         while (index + 1 < pages.length && supported(pages[index + 1], theme) && pages[index + 1].sectionIds[0] === first.sectionIds[0]) group.push(pages[++index]);
-        if (!hasSettings(settings, theme, first.sectionIds[0], first.landscapePhoto)) {
+        if (!hasSettings(settings, theme, first.sectionIds[0], first.landscapePhoto) && (options.measureSections || []).indexOf(first.sectionIds[0]) < 0) {
           group.forEach(function (model, pageIndex) { output.push(frame(model, pageIndex)); });
           continue;
         }
@@ -124,7 +134,19 @@
           measure.style.cssText = "position:fixed;left:-20000px;top:0;width:1100px;height:auto;overflow:visible;visibility:hidden;pointer-events:none;zoom:1;padding:0;display:block;";
           document.body.appendChild(measure);
         }
-        var remaining = blocksFromHtml(group.map(function (model) { return model.content(); }).join(""));
+        var source = document.createElement("div");
+        source.innerHTML = group.map(function (model) { return model.content(); }).join("");
+        var wrappers = Array.from(source.children);
+        var wrapper = wrappers.length && wrappers.every(function (node) { return node.classList.contains("process-single-page-copy"); })
+          ? wrappers[0].cloneNode(false) : null;
+        var remaining = blocksFromHtml(wrapper ? wrappers.map(function (node) { return node.innerHTML; }).join("") : source.innerHTML);
+        function pageHtml(blocks) {
+          var html = blocksHtml(blocks);
+          if (!wrapper) return html;
+          var container = wrapper.cloneNode(false);
+          container.innerHTML = html;
+          return container.outerHTML;
+        }
         var pageIndex = 0;
         do {
           var template = group[Math.min(pageIndex, group.length - 1)];
@@ -143,7 +165,7 @@
           setHeight(copy, model.textFrame.height);
           var current = [];
           function fits(blocks) {
-            doc.innerHTML = blocksHtml(blocks);
+            doc.innerHTML = pageHtml(blocks);
             return copy.scrollHeight <= copy.clientHeight + 1;
           }
           while (remaining.length) {
@@ -166,12 +188,12 @@
               // Keep indivisible content (e.g. a rate table) intact. Expand this
               // frame up to its normal space rather than silently clipping it.
               current.push(remaining.shift());
-              doc.innerHTML = blocksHtml(current);
+              doc.innerHTML = pageHtml(current);
               model.textFrame.height = Math.max(model.textFrame.height, Math.min(maximum - top, copy.scrollHeight + 1));
             }
             break;
           }
-          var html = blocksHtml(current);
+          var html = pageHtml(current);
           model.content = (function (value) { return function () { return value; }; }(html));
           output.push(model);
           pageIndex += 1;

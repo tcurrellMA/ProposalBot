@@ -16,6 +16,8 @@ test('text boundaries reflow real proposal pages, retain every word, persist, re
     render: renderPreview,
     pages: renderProposalPages,
     resizePhoto: savePreviewPhotoFrameHeight,
+    copyHtml: textToHtmlContinuous,
+    renderPage: renderNorthlineModelPage,
     exportPage: buildInDesignPageHtml
   };`;
   const instrumented = source.replace(/\}\(\)\);\s*$/, expose + '\n}());');
@@ -105,6 +107,33 @@ test('text boundaries reflow real proposal pages, retain every word, persist, re
           check(Object.keys(api.get().textFrameBottoms).some(function(k){return k.indexOf(theme+':'+(wide?'wide':'side'))===0;}),'Settings isolated by theme and layout '+JSON.stringify({theme:theme,wide:wide,keys:Object.keys(api.get().textFrameBottoms),layout:api.get().sectionLandscapeLayouts}));
         }
       }
+      // Continued Process / Scope lists must have the same item-to-item gap,
+      // including when an old page break fell after the first bullet.
+      api.set(saved);
+      var labels=['Program is based on approximately 160 residential units',
+        'Structured parking is incorporated into the building concept',
+        'Interior and exterior amenities are included in the current program with coordinated landscape, residential, retail, and shared parking requirements. '.repeat(3),
+        'Owner will provide budget, schedule, and approval milestones',
+        'Scope adjustments may require fee or service modifications'];
+      var processFragments=[
+        '<div class="process-single-page-copy"><h3 class="process-fixed-heading">Assumptions</h3><ul><li>'+labels[0]+'</li></ul></div>',
+        '<div class="process-single-page-copy"><ul>'+labels.slice(1).map(function(label){return '<li>'+label+'</li>';}).join('')+'</ul></div>'
+      ];
+      var processModels=processFragments.map(function(html,i){return {key:'process-'+(i+1),header:'Process / Scope',photoType:'design',sectionIds:['process'],landscapePhoto:true,content:function(){return html;}};});
+      var flowed=ProposalTextFlow.prepare(processModels,{theme:'northlinePortrait',settings:{'northlinePortrait:wide:process:0':6.5},render:api.renderPage});
+      check(flowed.length===1,'Continued list can rejoin the preceding page');
+      var probe=document.createElement('div');probe.className='proposal-document theme-northline-portrait';
+      probe.style.cssText='position:fixed;left:-10000px;top:0;visibility:hidden;zoom:1;width:1100px';document.body.appendChild(probe);
+      probe.innerHTML=ProposalTextFlow.decorate(flowed[0],api.renderPage(flowed[0],2));
+      probe.querySelector('.proposal-page').style.contentVisibility='visible';
+      check(probe.querySelectorAll('.process-single-page-copy').length===1,'Process formatting wrapper is retained once per page');
+      check(probe.querySelectorAll('ul').length===1,'Continued bullets use one list');
+      var bullets=Array.from(probe.querySelectorAll('li'));check(bullets.length===5,'All bullet items retained');
+      var gaps=bullets.slice(1).map(function(li,i){return li.getBoundingClientRect().top-bullets[i].getBoundingClientRect().bottom;});
+      check(Math.max.apply(null,gaps)-Math.min.apply(null,gaps)<.25,'All bullet gaps match, including wrapped items: '+gaps.join(','));
+      probe.innerHTML=api.copyHtml('- First bullet\n\n- Second bullet\n- Third bullet');
+      check(probe.querySelectorAll('ul').length===1&&probe.querySelectorAll('li').length===3,'Blank editor lines do not add gaps between bullets');
+      probe.remove();
       api.set(saved);document.getElementById('proposal-preview').style.zoom='.85';handle().scrollIntoView({block:'center',inline:'nearest'});
       var pre=document.createElement('pre');pre.id='flow-result';pre.textContent='passed';document.body.appendChild(pre);
     }

@@ -426,6 +426,7 @@ function serveStaticFile(request, response) {
   const publicFile = relativePath === "index.html"
     || relativePath === "app.js"
     || relativePath === "text-flow.js"
+    || relativePath === "global-changes.js"
     || relativePath === "styles.css"
     || relativePath === "MA Logo.jpg"
     || relativePath === "version.json"
@@ -443,7 +444,7 @@ function serveStaticFile(request, response) {
       return;
     }
     const headers = { "Content-Type": MIME_TYPES[path.extname(filePath).toLowerCase()] || "application/octet-stream" };
-    if (["index.html", "app.js", "text-flow.js", "styles.css", "version.json"].includes(relativePath)) {
+    if (["index.html", "app.js", "text-flow.js", "global-changes.js", "styles.css", "version.json"].includes(relativePath)) {
       headers["Cache-Control"] = "no-store";
     }
     response.writeHead(200, headers);

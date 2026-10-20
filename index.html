@@ -55,10 +55,10 @@
         <section class="workspace">
           <section class="work-pane" aria-label="Proposal editor">
             <div class="tabs" role="tablist" aria-label="Work areas">
-              <button type="button" class="tab" id="tab-notes" data-tab="notes">Notes</button>
               <button type="button" class="tab active" id="tab-info" data-tab="info">Project Info</button>
               <button type="button" class="tab" id="tab-sections" data-tab="sections">Sections</button>
               <button type="button" class="tab" id="tab-photos" data-tab="photos">Photos</button>
+              <button type="button" class="tab" id="tab-changes" data-tab="changes">Change everywhere</button>
             </div>
 
             <div id="editor-panel"></div>
@@ -79,6 +79,7 @@
     </div>
 
     <script src="text-flow.js"></script>
+    <script src="global-changes.js"></script>
     <script src="app.js"></script>
     <input type="file" id="import-backup-input" accept=".json,application/json" hidden>
   </body>

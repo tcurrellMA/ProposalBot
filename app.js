@@ -19,11 +19,20 @@
   var THEME_SESSION_KEY = "proposal-bot-full-service-current-theme-v1";
   var SAVED_TEXT_LIBRARY_KEY = "proposal-bot-saved-section-text-library-v1";
   var DELIVERABLE_LIBRARY_KEY = "proposal-bot-deliverable-library-v1";
+  var SELECTION_LIST_LIBRARY_KEY = "proposal-bot-selection-list-library-v1";
   var CUSTOM_TEMPLATE_KEY = "proposal-bot-custom-proposal-types-v1";
   var GENERAL_CONDITIONS_RATE_DEFAULTS_KEY = "proposal-bot-general-conditions-rate-defaults-v1";
   var PROCESS_FIXED_HEADING = "Our Design Team";
   var PROCESS_SCOPE_FIXED_HEADING = "Scope of Work / Basic Services";
   var PHASE_SCOPE_FIXED_HEADING = "In coordination with the AOR, this phase includes the following:";
+  var UNIT_LAYOUT_AND_DESIGN_TEXT = [
+    "Unit Layout and Design",
+    "The design and development of residential units is a highly detailed and collaborative process that requires careful coordination among multiple design and engineering disciplines and your team. Successful unit planning must balance architectural design, functionality, aesthetics, construction efficiency, and regulatory compliance while ensuring a cohesive and well-executed residential environment.",
+    "From a technical standpoint, unit design requires close coordination with architectural, mechanical, electrical, and plumbing engineering disciplines, as well as lighting design and applicable Fair Housing accessibility requirements. Each discipline introduces specific considerations that influence the overall configuration, spatial relationships, and functionality of the units.",
+    "From an architectural and interior design perspective, the process involves a comprehensive evaluation of unit layouts, spatial proportions, circulation, architectural features, and material selections. Particular attention is given to the design and functionality of primary living spaces, kitchens, bathrooms, bedrooms, and outdoor balconies. These considerations extend to window placement, natural lighting, door locations, appliance specifications, plumbing fixtures, lighting arrangements, cabinetry, millwork, and the integration of mechanical and electrical systems.",
+    "The design process is meticulous and iterative, requiring numerous successive meetings, design reviews, and interdisciplinary coordination sessions. This includes the development and coordination of detailed floor plans, interior elevations, reflected ceiling plans, cabinetry and millwork details, finish selections, and fixture specifications.",
+    "Ultimately, thoughtful unit design requires a significant investment of professional time, attention to detail, and continuous collaboration. The objective is to develop residential units that are aesthetically compelling, highly functional, technically coordinated, and responsive to both the project’s design vision and the practical requirements of multifamily residential development."
+  ].join("\n\n");
   var PROJECT_SUMMARY_FIXED_HEADING = "Project Summary";
   var DEFAULT_GENERAL_CONDITIONS_HOURLY_RATES = [
     { label: "Principal", amount: "375" },
@@ -203,6 +212,7 @@
       defaultsSaved: !!hasDefaults,
       sectionInclusion: hasDefaults ? normalizeSectionInclusion(source.sectionInclusion) : null,
       sectionOverrides: hasDefaults ? normalizeProposalTypeText(source.sectionOverrides) : {},
+      sectionUnitVisibility: normalizeSectionUnitVisibility(source.sectionUnitVisibility),
       sectionTitleOverrides: hasDefaults ? normalizeSectionTitleOverrides(source.sectionTitleOverrides) : {},
       phaseLabels: hasDefaults ? normalizePhaseLabels(source.phaseLabels) : {}
     };
@@ -263,7 +273,7 @@
   function captureProposalTypeDefaults(id, label, note) {
     var textDefaults = {};
     sectionDefinitions.forEach(function (section) {
-      textDefaults[section.id] = String(getSectionText(section) || "");
+      textDefaults[section.id] = String((supportsUnitLayoutEditor(section.id) ? getSectionSourceText(section) : getSectionText(section)) || "");
     });
     return {
       id: id,
@@ -272,6 +282,7 @@
       defaultsSaved: true,
       sectionInclusion: normalizeSectionInclusion(proposal.sectionInclusion),
       sectionOverrides: textDefaults,
+      sectionUnitVisibility: normalizeSectionUnitVisibility(proposal.sectionUnitVisibility),
       sectionTitleOverrides: normalizeSectionTitleOverrides(proposal.sectionTitleOverrides),
       phaseLabels: normalizePhaseLabels(proposal.phaseLabels)
     };
@@ -285,6 +296,7 @@
     if (template.defaultsSaved) {
       proposal.sectionInclusion = normalizeSectionInclusion(template.sectionInclusion);
       proposal.sectionOverrides = normalizeProposalTypeText(template.sectionOverrides);
+      proposal.sectionUnitVisibility = normalizeSectionUnitVisibility(template.sectionUnitVisibility);
       proposal.sectionTitleOverrides = normalizeSectionTitleOverrides(template.sectionTitleOverrides);
       proposal.phaseLabels = normalizePhaseLabels(template.phaseLabels);
       delete proposal.projectSummarySections;
@@ -306,7 +318,17 @@
       return merged[id];
     });
   }
-  var defaultPhotoTypologies = ["Unassigned", "MF Low", "MF High", "Office", "Retail", "Hospitality", "Master Plan"];
+  var defaultPhotoTypologies = ["Unassigned", "MF Low", "MF High", "Office", "Retail", "Hospitality", "Master Plan", "Mixed-Use", "Senior Living", "Institutional"];
+  var PROJECT_TYPE_OPTIONS = [
+    { value: "office", label: "Office", photos: ["Office"], description: "commercial office project" },
+    { value: "multiFamily", label: "Multi Family", photos: ["MF Low", "MF High"], description: "residential development" },
+    { value: "mixedUse", label: "Mixed-Use", photos: ["Mixed-Use", "MF Low", "MF High", "Office", "Retail"], description: "mixed-use project" },
+    { value: "masterPlan", label: "Master Plan", photos: ["Master Plan"], description: "master planning project" },
+    { value: "hospitality", label: "Hospitality", photos: ["Hospitality"], description: "hospitality project" },
+    { value: "retail", label: "Retail", photos: ["Retail"], description: "retail project" },
+    { value: "seniorLiving", label: "Senior Living", photos: ["Senior Living"], description: "senior living project" },
+    { value: "institutional", label: "Institutional", photos: ["Institutional"], description: "institutional project" }
+  ];
   var defaultPhaseDeliverables = {
     conceptDesign: [
       "Context plan",
@@ -429,6 +451,8 @@
       "Design Development",
       "",
       "Our design development phase is based on the approved schematic design documents and approved preliminary budget by the General Contractor. This phase includes identification of structural, mechanical and electrical systems for pricing purposes.",
+      "",
+      UNIT_LAYOUT_AND_DESIGN_TEXT,
       "",
       "In coordination with the AOR, this phase includes the following:",
       "• Site and area analysis to confirm design parameters.",
@@ -1040,6 +1064,9 @@
   }
 
   function renderTabs() {
+    if (!els.tabs.some(function (button) { return button.dataset.tab === activeTab; })) {
+      activeTab = "info";
+    }
     els.tabs.forEach(function (button) {
       button.classList.toggle("active", button.dataset.tab === activeTab);
     });
@@ -1067,11 +1094,12 @@
   }
 
   function renderEditor() {
+    els.editor.classList.toggle("project-info-panel", activeTab === "info");
     if (activeTab !== "photos") {
       resetPhotoLibraryThumbnailLoading();
     }
-    if (activeTab === "notes") {
-      renderNotesPanel();
+    if (activeTab === "changes") {
+      renderGlobalChangesPanel();
     } else if (activeTab === "photos") {
       renderPhotosPanel();
     } else if (activeTab === "sections") {
@@ -1169,6 +1197,7 @@
           return input.value;
         });
         proposal.project.photoTypologies = current.join(", ");
+        proposal.project.photoTypologiesAuto = false;
         markDirty();
         saveCurrentDraft();
         renderAll();
@@ -2430,13 +2459,12 @@
     if (section.id === "generalConditionsPage") {
       return normalizeGeneralConditions(proposal.generalConditions).text;
     }
-    if (Object.prototype.hasOwnProperty.call(proposal.sectionOverrides, section.id)) {
-      return proposal.sectionOverrides[section.id];
+    var text = getSectionSourceText(section);
+    if (supportsUnitLayoutEditor(section.id) && (!projectSupportsMultifamily() || (proposal.sectionUnitVisibility && proposal.sectionUnitVisibility[section.id] === false))) {
+      var parts = unitLayoutSectionParts(section, text);
+      text = [parts.intro, parts.tail].filter(Boolean).join("\n\n");
     }
-    if (section.generator) {
-      return section.generator();
-    }
-    return generateContextualSectionText(section);
+    return filterMultifamilyText(text);
   }
 
   function getSectionSourceText(section) {
@@ -2529,6 +2557,8 @@
           "Design Development",
           "",
           "Our design development phase is based on the approved schematic design documents and the updated preliminary budget provided by the General Contractor. This phase includes continued development of the architectural design for " + c.projectName + " and identification of structural, mechanical, electrical, envelope, and material systems for pricing and coordination purposes.",
+          "",
+          UNIT_LAYOUT_AND_DESIGN_TEXT,
           "",
           "In coordination with the AOR, this phase includes the following:",
           "- Site and area analysis to confirm design parameters.",
@@ -2627,6 +2657,10 @@
   }
 
   function inferProjectType(text) {
+    var explicitType = proposal && proposal.project && normalizeProjectType(proposal.project.projectType);
+    if (explicitType) {
+      return projectTypeOption(explicitType).description;
+    }
     var value = String(text || "").toLowerCase();
     if (value.indexOf("multifamily") >= 0 || value.indexOf("residential") >= 0 || value.indexOf("apartment") >= 0) {
       return "residential development";
@@ -2644,6 +2678,17 @@
   }
 
   function inferDesignIntent(program, scope) {
+    var explicitType = proposal && proposal.project && normalizeProjectType(proposal.project.projectType);
+    var intents = {
+      office: "a clear commercial identity, efficient workplace planning, and a coordinated response to the project context",
+      mixedUse: "a cohesive mix of uses, active ground-level spaces, clear circulation, and a coordinated response to the project context",
+      masterPlan: "connected public spaces, coordinated land uses, clear circulation, and a phased response to the site and community",
+      hospitality: "a memorable guest experience, clear arrival sequence, efficient back-of-house planning, and a cohesive architectural identity",
+      retail: "a clear retail identity, intuitive access and circulation, and a strong customer and tenant experience",
+      seniorLiving: "comfort, accessibility, community connections, and a welcoming environment suited to the senior living program",
+      institutional: "clear access, inclusive public spaces, efficient program planning, and an architectural identity suited to the institution"
+    };
+    if (intents[explicitType]) return intents[explicitType];
     var text = String(program || "") + " " + String(scope || "");
     var value = text.toLowerCase();
     if (value.indexOf("office") >= 0 || value.indexOf("retail") >= 0 || value.indexOf("mixed-use") >= 0 || value.indexOf("mixed use") >= 0) {
@@ -3019,7 +3064,7 @@
     if (/^\d+\.\s+[A-Z][^.]{0,60}$/.test(text)) {
       return true;
     }
-    return /^(?:scope of work|basic services|deliverables|m\+a assumptions|bidding and negotiation|construction administration|our design team|project description)$/i.test(text);
+    return /^(?:scope of work|basic services|deliverables|m\+a assumptions|bidding and negotiation|construction administration|our design team|project description|unit layout and design)$/i.test(text);
   }
 
   function isSalutationLine(value) {
@@ -3124,6 +3169,7 @@
   }
 
   function textToHtmlContinuous(value, options) {
+    value = filterMultifamilyText(value);
     if (options && options.joinMidSentenceParagraphs) {
       value = joinMidSentenceParagraphBreaks(value);
     }
@@ -3180,7 +3226,8 @@
 
     flushParagraph();
     flushList();
-    return html.join("");
+    // Blank editor lines should not add a second list margin between bullets.
+    return html.join("").replace(/<\/ul>\s*<ul>/g, "");
   }
 
   function escapeProposalCopy(value) {
@@ -4290,7 +4337,7 @@
       ? source.deletedDeliverables[phaseId]
       : [];
     var key = normalizeTitle(name);
-    return deleted.indexOf(key) >= 0;
+    return deleted.indexOf(key) >= 0 || isSelectionListItemDeleted("deliverables." + phaseId, name);
   }
 
   function rememberDeletedDeliverable(phaseId, name) {
@@ -4348,11 +4395,11 @@
     });
   }
 
-  function selectedDeliverableNames(phaseId) {
+  function selectedDeliverableNames(phaseId, includeHidden) {
     proposal.deliverables = proposal.deliverables || {};
     proposal.deliverables[phaseId] = normalizeDeliverableItems(proposal.deliverables[phaseId], phaseId);
     return proposal.deliverables[phaseId].filter(function (item) {
-      return item.included;
+      return item.included && (includeHidden || !isMultifamilyContent(item.name));
     }).map(function (item) {
       return item.name;
     });
@@ -4360,6 +4407,7 @@
 
   function saveCurrentDraft() {
     window.clearTimeout(autoSaveTimer);
+    proposal.savedListLibrary = readSelectionListLibrary();
     var drafts = readDrafts();
     if (!proposal.meta.id) {
       proposal.meta.id = "draft-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
@@ -6184,6 +6232,7 @@
       customProposalTypes: readCustomTemplates(),
       savedTextLibrary: migrateSavedTextFromDrafts(),
       deliverableLibrary: readDeliverableLibrary(),
+      selectionListLibrary: readSelectionListLibrary(),
       generalConditionsRateDefaults: readSavedGeneralConditionsHourlyRates(),
       drafts: readDrafts()
     }, null, 2);
@@ -6288,6 +6337,9 @@
     }
     if (payload && payload.deliverableLibrary && typeof payload.deliverableLibrary === "object") {
       writeDeliverableLibrary(mergeDeliverableLibraries(readDeliverableLibrary(), payload.deliverableLibrary));
+    }
+    if (payload && payload.selectionListLibrary) {
+      writeSelectionListLibrary(mergeSelectionListLibraries(readSelectionListLibrary(), payload.selectionListLibrary));
     }
     if (payload && Array.isArray(payload.generalConditionsRateDefaults) && payload.generalConditionsRateDefaults.length) {
       writeSavedGeneralConditionsHourlyRates(payload.generalConditionsRateDefaults);
@@ -7350,7 +7402,8 @@
         createdAt: today,
         updatedAt: today,
         samplePhotosSeeded: true,
-        coverImageCollapsed: false
+        coverImageCollapsed: false,
+        useProjectTypeListDefaults: true
       },
       templateId: "fullService",
       themeId: "maOg",
@@ -7634,6 +7687,7 @@
     base.sectionLandscapeLayouts = normalizeSectionLandscapeLayouts(base.sectionLandscapeLayouts);
     base.sectionTitleOverrides = normalizeSectionTitleOverrides(base.sectionTitleOverrides);
     base.sectionOverrides = base.sectionOverrides || {};
+    base.sectionUnitVisibility = normalizeSectionUnitVisibility(base.sectionUnitVisibility);
     if (Object.prototype.hasOwnProperty.call(base.sectionOverrides, "projectSummary")) {
       base.sectionOverrides.projectSummary = normalizeProjectSummaryNarrativeText(base.sectionOverrides.projectSummary);
     }
@@ -7730,9 +7784,7 @@
     base.schedule.valueEngineeringStudy = String(base.schedule.valueEngineeringStudy || "");
     base.schedule.description = String(base.schedule.description || "");
     base.schedule.belowText = String(base.schedule.belowText || "");
-    if (base.project.photoTypologies === "") {
-      base.project.photoTypologies = defaultPhotoTypologies.slice().join(", ");
-    }
+    normalizeProjectSettings(base.project);
     if (Array.isArray(base.project.photoTypologies)) {
       base.project.photoTypologies = base.project.photoTypologies.join(", ");
     }
@@ -7771,6 +7823,7 @@
     if (!base.compensation.amountWords) {
       base.compensation.amountWords = compensationAmountToWords(base.compensation.amount);
     }
+    initializeSelectionLists(base);
     return base;
   }
 
@@ -8328,15 +8381,11 @@
     els.editor.appendChild(themeCard);
     els.editor.appendChild(renderCoverSourceCard());
 
-    if (currentThemeId() === "northlinePortrait") {
-      els.editor.appendChild(renderModernPortraitCoverImageCard());
-    }
-
     var projectInfoCard = fieldsCard("Project Information", [
       fieldDef("project.projectName", "Project name"),
       fieldDef("project.coverTitle", "Cover page title", "textarea", true, "Leave blank to use the selected theme's default title."),
       fieldDef("project.coverSubtitle", "Cover subtitle", "textarea", true),
-      fieldDef("project.summaryProposalTitle", "Proposal line below address", "textarea", true, "Proposal for Architectural Design Services for [Project Name]."),
+      fieldDef("project.summaryProposalTitle", "Proposal line below address", "text", true, "Proposal for Architectural Design Services for [Project Name]."),
       fieldDef("project.proposalDate", "Proposal date", "date"),
       fieldDef("project.projectLocation", "Project location"),
       fieldDef("project.clientCompany", "Client / owner"),
@@ -8344,26 +8393,128 @@
       fieldDef("project.clientTitle", "Client title"),
       fieldDef("project.clientAddress", "Client address", "textarea", true)
     ]);
-    projectInfoCard.querySelector(".field-grid").appendChild(renderProjectPhotoTypologyField());
+    projectInfoCard.classList.add("project-information-card");
+    var projectGrid = projectInfoCard.querySelector(".field-grid");
+    projectGrid.insertBefore(renderProjectTypeField(), projectGrid.firstChild);
+    ["coverTitle", "coverSubtitle", "clientAddress"].forEach(function (key) {
+      var input = projectGrid.querySelector("#field-project-" + key);
+      input.rows = 2;
+      input.closest(".field").classList.remove("full");
+    });
+    projectGrid.appendChild(renderProjectPhotoTypologyField());
     els.editor.appendChild(projectInfoCard);
     renderClientLogosCard();
     activatePhotoLibraryThumbnailLoading();
   }
 
-  function renderNotesPanel() {
-    els.editor.innerHTML = "";
-    var card = panelCard("Notes", "Keep private working notes for this proposal. These notes stay in the draft and do not print.");
-    var textarea = document.createElement("textarea");
-    textarea.className = "notes-textarea";
-    textarea.value = proposal.notes || "";
-    textarea.placeholder = "Type notes here...";
-    textarea.addEventListener("input", function () {
-      proposal.notes = textarea.value;
-      markDirty();
-      saveCurrentDraft();
+  function normalizeProjectType(value) {
+    var key = String(value || "").toLowerCase().replace(/[^a-z]/g, "");
+    var match = PROJECT_TYPE_OPTIONS.find(function (option) {
+      return option.value.toLowerCase() === key || option.label.toLowerCase().replace(/[^a-z]/g, "") === key;
     });
-    card.appendChild(textarea);
-    els.editor.appendChild(card);
+    return match ? match.value : "";
+  }
+
+  function projectTypeOption(value) {
+    return PROJECT_TYPE_OPTIONS.find(function (option) { return option.value === value; }) || PROJECT_TYPE_OPTIONS[0];
+  }
+
+  function inferProjectCategory(project) {
+    var text = String(project.program || "") + " " + String(project.projectName || "");
+    if (/mixed[\s-]*use/i.test(text)) return "mixedUse";
+    if (/senior|assisted living|retirement/i.test(text)) return "seniorLiving";
+    if (/master[\s-]*plan/i.test(text)) return "masterPlan";
+    if (/hospitality|hotel|resort/i.test(text)) return "hospitality";
+    if (/institution|school|university|college|museum|civic|hospital|medical|church/i.test(text)) return "institutional";
+    if (/multi[\s-]*family|residential|apartment/i.test(text)) return "multiFamily";
+    if (/office/i.test(text)) return "office";
+    if (/retail/i.test(text)) return "retail";
+    return "office";
+  }
+
+  function projectSupportsMultifamily() {
+    var project = proposal && proposal.project || {};
+    var type = normalizeProjectType(project.projectType) || inferProjectCategory(project);
+    return type === "multiFamily" || type === "mixedUse";
+  }
+
+  function normalizeProjectSettings(project) {
+    var explicitType = normalizeProjectType(project.projectType);
+    project.projectType = explicitType || inferProjectCategory(project);
+    var selected = Array.isArray(project.photoTypologies) ? project.photoTypologies.join(", ") : String(project.photoTypologies || "");
+    var keys = parsePhotoTypologies(selected);
+    var legacyAll = !explicitType && ["mf low", "mf high", "office", "retail", "hospitality", "master plan"].every(function (key) {
+      return keys.indexOf(key) >= 0;
+    });
+    var automatic = project.photoTypologiesAuto === true || (project.photoTypologiesAuto !== false && (!selected || legacyAll));
+    if (automatic) selected = projectTypeOption(project.projectType).photos.join(", ");
+    project.photoTypologies = selected;
+    project.photoTypologiesAuto = automatic;
+  }
+
+  function isMultifamilyContent(value) {
+    if (projectSupportsMultifamily()) return false;
+    var text = String(value || "").toLowerCase();
+    var project = proposal.project || {};
+    [project.projectName, project.clientCompany, project.clientContact].filter(Boolean).forEach(function (name) {
+      text = text.split(String(name).toLowerCase()).join("");
+    });
+    text = text.replace(/\bnon[\s-]residential\b/g, "nonresidential");
+    return /\b(?:multi[\s-]?family|residential|apartments?|dwelling units?|bedrooms?|resident profile|resident demographics|unit (?:layout|design|plans?|mix|size|types?|rcps?)|(?:all|typical) units?|per unit)\b/i.test(text) || /\b\d[\d,]*\s+(?:total\s+)?units?\b/i.test(text);
+  }
+
+  function filterMultifamilyText(value) {
+    var text = String(value || "");
+    if (projectSupportsMultifamily()) return text;
+    return textBlocksForPaging(text).filter(function (block) {
+      return !isMultifamilyContent(block);
+    }).join("\n\n");
+  }
+
+  function filterProjectTypeHtml(html) {
+    if (projectSupportsMultifamily()) return html;
+    var host = document.createElement("div");
+    host.innerHTML = html;
+    host.querySelectorAll(".doc-copy p,.doc-copy li,.doc-copy h3").forEach(function (node) {
+      if (isMultifamilyContent(node.textContent)) node.remove();
+    });
+    host.querySelectorAll(".doc-copy ul,.doc-copy ol").forEach(function (list) {
+      if (!list.children.length) list.remove();
+    });
+    return host.innerHTML;
+  }
+
+  function setProjectType(value) {
+    var type = normalizeProjectType(value);
+    if (!type) return;
+    proposal.project.projectType = type;
+    proposal.project.photoTypologies = projectTypeOption(type).photos.map(normalizeTypology).join(", ");
+    proposal.project.photoTypologiesAuto = true;
+    applyProjectTypeListDefaults(proposal);
+    markDirty();
+    saveCurrentDraft();
+    renderAll();
+  }
+
+  function renderProjectTypeField() {
+    var wrap = document.createElement("div");
+    wrap.className = "field";
+    var label = document.createElement("label");
+    label.htmlFor = "field-project-projectType";
+    label.textContent = "Project type";
+    var select = document.createElement("select");
+    select.id = label.htmlFor;
+    PROJECT_TYPE_OPTIONS.forEach(function (type) {
+      var option = document.createElement("option");
+      option.value = type.value;
+      option.textContent = type.label;
+      select.appendChild(option);
+    });
+    select.value = proposal.project.projectType;
+    select.addEventListener("change", function () { setProjectType(select.value); });
+    wrap.appendChild(label);
+    wrap.appendChild(select);
+    return wrap;
   }
 
   function renderModernPortraitCoverImageCard() {
@@ -8604,7 +8755,7 @@
   }
 
   function renderSimpleListCard(title, path, hint, togglePath, toggleLabel) {
-    var card = panelCard(title, hint || "");
+    var card = panelCard(title, path === "project.summaryDeliverables" ? "Choose items for this proposal." : hint || "");
     if (togglePath) {
       var toggleRow = document.createElement("label");
       toggleRow.className = "inline-check";
@@ -8620,6 +8771,11 @@
       toggleRow.appendChild(toggle);
       toggleRow.appendChild(document.createTextNode(toggleLabel || " Show on page"));
       card.appendChild(toggleRow);
+    }
+    if (path === "project.summaryDeliverables") {
+      card.dataset.selectionList = "deliverables.projectSummary";
+      renderSelectionListControls("deliverables.projectSummary", card);
+      return card;
     }
     var textarea = document.createElement("textarea");
     textarea.value = getValue(proposal, path) || "";
@@ -9719,40 +9875,17 @@
     if (phaseId && phaseId !== "conceptDesign") {
       ensurePhaseScopeItems(phaseId, section);
     }
+    if (supportsLandscapeImageLayout(section.id)) {
+      els.editor.appendChild(renderLandscapeLayoutCard(section.id));
+    }
     var card = document.createElement("section");
     card.className = "section-editor";
-    card.innerHTML = '<div class="section-editor-head"><div><p class="eyebrow">Section</p><h3>' + escapeHtml(sectionDisplayTitle(section)) + '</h3></div><div class="section-meta"><span class="pill">' + escapeHtml(section.source) + '</span><span class="pill">photo: ' + escapeHtml(section.photoType) + '</span></div></div>';
-    var titleField = document.createElement("div");
-    titleField.className = "field full";
-    var titleLabel = document.createElement("label");
-    titleLabel.textContent = "Section title";
-    var titleInput = document.createElement("input");
-    titleInput.type = "text";
-    titleInput.value = sectionDisplayTitle(section);
-    titleInput.maxLength = 90;
-    titleInput.setAttribute("aria-label", "Section title");
-    titleInput.addEventListener("input", function () {
-      proposal.sectionTitleOverrides[section.id] = titleInput.value;
-      markDirty();
-      renderNav();
-      renderPreview();
-      saveCurrentDraft();
-    });
-    titleField.appendChild(titleLabel);
-    titleField.appendChild(titleInput);
-    var resetTitle = document.createElement("button");
-    resetTitle.type = "button";
-    resetTitle.className = "secondary compact";
-    resetTitle.textContent = "Reset title";
-    resetTitle.addEventListener("click", function () {
-      delete proposal.sectionTitleOverrides[section.id];
-      markDirty();
-      renderAll();
-    });
-    titleField.appendChild(resetTitle);
-    card.appendChild(titleField);
-    if (sectionSupportsFreeformText(section.id)) {
-      var generated = section.id === "process" ? getSectionText(section) : editableSectionText(section);
+    card.innerHTML = '<div class="section-editor-head"><div class="section-heading"><p class="eyebrow">Section</p></div><div class="section-meta"><span class="pill">' + escapeHtml(section.source) + '</span><span class="pill">photo: ' + escapeHtml(section.photoType) + '</span></div></div>';
+    renderSectionTitleEditor(section, card.querySelector(".section-heading"));
+    if (supportsUnitLayoutEditor(section.id)) {
+      renderUnitLayoutEditors(section, card);
+    } else if (sectionSupportsFreeformText(section.id)) {
+      var generated = section.id === "process" ? getSectionSourceText(section) : editableSectionText(section);
       var presets = renderSectionPresetControls(section);
       card.appendChild(presets.wrap);
 
@@ -9865,6 +9998,9 @@
       reset.textContent = "Reset to generated";
       reset.addEventListener("click", function () {
         delete proposal.sectionOverrides[section.id];
+        if (proposal.sectionUnitVisibility) {
+          delete proposal.sectionUnitVisibility[section.id];
+        }
         if (section.id === "projectSummary") {
           delete proposal.projectSummarySections;
         }
@@ -9875,6 +10011,205 @@
       card.appendChild(actions);
     }
     els.editor.appendChild(card);
+  }
+
+  function renderSectionTitleEditor(section, host) {
+    var headingRow = document.createElement("div");
+    headingRow.className = "section-title-heading";
+    var heading = document.createElement("h3");
+    heading.textContent = sectionDisplayTitle(section);
+    headingRow.appendChild(heading);
+    var edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "section-title-pencil";
+    edit.title = "Edit section title";
+    edit.setAttribute("aria-label", "Edit section title");
+    edit.setAttribute("aria-expanded", "false");
+    edit.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5-12 12-6 1 1-6L16 3Z"/><path d="m14 5 5 5"/></svg>';
+    headingRow.appendChild(edit);
+    host.appendChild(headingRow);
+
+    var editor = document.createElement("div");
+    editor.className = "section-title-edit";
+    editor.id = "edit-section-title-" + section.id;
+    editor.hidden = true;
+    edit.setAttribute("aria-controls", editor.id);
+    var input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = 90;
+    input.setAttribute("aria-label", "Section title");
+    editor.appendChild(input);
+    var done = document.createElement("button");
+    done.type = "button";
+    done.className = "section-title-pencil";
+    done.textContent = "✓";
+    done.title = "Done editing title";
+    done.setAttribute("aria-label", "Done editing title");
+    editor.appendChild(done);
+    var reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "section-title-reset";
+    reset.textContent = "Reset";
+    reset.setAttribute("aria-label", "Reset title");
+    editor.appendChild(reset);
+    host.appendChild(editor);
+    var originalOverride;
+
+    function refreshTitle() {
+      heading.textContent = sectionDisplayTitle(section);
+      markDirty();
+      renderNav();
+      renderPreview();
+      saveCurrentDraft();
+    }
+    function finish(focusPencil) {
+      if (editor.hidden) return;
+      editor.hidden = true;
+      headingRow.hidden = false;
+      edit.setAttribute("aria-expanded", "false");
+      if (focusPencil) edit.focus();
+    }
+    edit.addEventListener("click", function () {
+      originalOverride = proposal.sectionTitleOverrides[section.id];
+      input.value = sectionDisplayTitle(section);
+      headingRow.hidden = true;
+      editor.hidden = false;
+      edit.setAttribute("aria-expanded", "true");
+      input.focus();
+      input.select();
+    });
+    input.addEventListener("input", function () {
+      if (input.value.trim()) proposal.sectionTitleOverrides[section.id] = input.value;
+      else delete proposal.sectionTitleOverrides[section.id];
+      refreshTitle();
+    });
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finish(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        if (originalOverride === undefined) delete proposal.sectionTitleOverrides[section.id];
+        else proposal.sectionTitleOverrides[section.id] = originalOverride;
+        refreshTitle();
+        finish(true);
+      }
+    });
+    done.addEventListener("click", function () { finish(true); });
+    reset.addEventListener("click", function () {
+      delete proposal.sectionTitleOverrides[section.id];
+      refreshTitle();
+      finish(true);
+    });
+    editor.addEventListener("focusout", function (event) {
+      if (!editor.contains(event.relatedTarget)) finish(false);
+    });
+  }
+
+  function supportsUnitLayoutEditor(sectionId) {
+    return ["schematicDesignPage", "designDevelopmentPage", "constructionDocumentsPage"].indexOf(sectionId) >= 0;
+  }
+
+  function normalizeSectionUnitVisibility(value) {
+    var result = {};
+    Object.keys(value || {}).forEach(function (sectionId) {
+      if (supportsUnitLayoutEditor(sectionId) && typeof value[sectionId] === "boolean") {
+        result[sectionId] = value[sectionId];
+      }
+    });
+    return result;
+  }
+
+  function unitLayoutSectionParts(section, text) {
+    var stripped = stripOpeningTitle(String(text || ""), [section.title, phaseTitleForSection(section.id)]);
+    var lines = stripped.split(/\r?\n/);
+    var tailIndex = lines.findIndex(function (line) {
+      var title = normalizeTitle(line);
+      return title && (title === normalizeTitle(PHASE_SCOPE_FIXED_HEADING) ||
+        title === normalizeTitle(phaseScopeHeading()) || title === "deliverables for this phase include");
+    });
+    if (tailIndex < 0) tailIndex = lines.length;
+    var unitIndex = lines.findIndex(function (line) {
+      return normalizeTitle(line) === "unit layout and design";
+    });
+    var hasUnits = unitIndex >= 0 && unitIndex < tailIndex;
+    return {
+      intro: lines.slice(0, hasUnits ? unitIndex : tailIndex).join("\n").trim(),
+      units: hasUnits ? lines.slice(unitIndex + 1, tailIndex).join("\n").trim() : UNIT_LAYOUT_AND_DESIGN_TEXT.split("\n\n").slice(1).join("\n\n"),
+      tail: lines.slice(tailIndex).join("\n").trim(),
+      hasUnits: hasUnits
+    };
+  }
+
+  function renderUnitLayoutEditors(section, card) {
+    var parts = unitLayoutSectionParts(section, getSectionSourceText(section));
+    var visibility = normalizeSectionUnitVisibility(proposal.sectionUnitVisibility);
+    var showUnits = Object.prototype.hasOwnProperty.call(visibility, section.id) ? visibility[section.id] : parts.hasUnits;
+
+    function textField(labelText, part, value, presetId) {
+      var wrap = document.createElement("div");
+      wrap.className = "field full";
+      wrap.dataset.copyPart = part;
+      var label = document.createElement("label");
+      label.htmlFor = section.id + "-" + part;
+      label.textContent = labelText;
+      wrap.appendChild(label);
+      var presets = renderSectionPresetControls({ id: presetId });
+      presets.wrap.setAttribute("role", "group");
+      presets.wrap.setAttribute("aria-label", labelText + " saved text");
+      wrap.appendChild(presets.wrap);
+      var textarea = document.createElement("textarea");
+      textarea.id = label.htmlFor;
+      textarea.value = value;
+      textarea.setAttribute("aria-label", labelText);
+      wrap.appendChild(textarea);
+      card.appendChild(wrap);
+      return { wrap: wrap, textarea: textarea, presets: presets };
+    }
+
+    var intro = textField("Intro Paragraph", "intro", parts.intro, section.id);
+    var units = textField("Unit Layout and Design", "units", parts.units, section.id + ":unitLayout");
+    var toggle = document.createElement("label");
+    toggle.className = "inline-check";
+    var checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = projectSupportsMultifamily() && showUnits;
+    checkbox.disabled = !projectSupportsMultifamily();
+    checkbox.title = checkbox.disabled ? "Unit Layout and Design is shown only for Multi Family and Mixed-Use projects." : "";
+    toggle.appendChild(checkbox);
+    toggle.appendChild(document.createTextNode(" Show Unit Layout and Design"));
+    units.wrap.insertBefore(toggle, units.presets.wrap);
+
+    function storeText() {
+      proposal.sectionOverrides[section.id] = [
+        intro.textarea.value.trim(),
+        units.textarea.value.trim() ? "Unit Layout and Design\n\n" + units.textarea.value.trim() : "",
+        parts.tail
+      ].filter(Boolean).join("\n\n");
+      proposal.sectionUnitVisibility = normalizeSectionUnitVisibility(proposal.sectionUnitVisibility);
+      if (projectSupportsMultifamily()) {
+        proposal.sectionUnitVisibility[section.id] = checkbox.checked;
+      } else if (!Object.prototype.hasOwnProperty.call(proposal.sectionUnitVisibility, section.id)) {
+        proposal.sectionUnitVisibility[section.id] = showUnits;
+      }
+    }
+    function update() {
+      storeText();
+      markDirty();
+      renderPreview();
+      saveCurrentDraft();
+    }
+    intro.textarea.addEventListener("input", update);
+    units.textarea.addEventListener("input", update);
+    checkbox.addEventListener("change", update);
+    intro.presets.attach(intro.textarea, null, function (text) {
+      intro.textarea.value = unitLayoutSectionParts(section, text).intro;
+      storeText();
+    });
+    units.presets.attach(units.textarea, null, function (text) {
+      units.textarea.value = String(text || "").replace(/^\s*Unit Layout and Design\s*\n+/i, "");
+      storeText();
+    });
   }
 
   function sectionSupportsFreeformText(sectionId) {
@@ -9890,9 +10225,6 @@
   }
 
   function renderStructuredSectionEditor(section, card) {
-    if (supportsLandscapeImageLayout(section.id)) {
-      card.appendChild(renderLandscapeLayoutCard(section.id));
-    }
     if (section.id === "projectSummary") {
       card.appendChild(renderSimpleListCard("Basic owner Requirements:", "project.ownerRequirements", "One item per line.", "project.showOwnerRequirements", " Show Basic owner requirements"));
       card.appendChild(renderSimpleListCard("Owner provided information:", "project.ownerProvidedInfo", "One item per line.", "project.showOwnerProvidedInfo", " Show Owner provided information"));
@@ -10310,32 +10642,400 @@
   function ensurePhaseScopeItems(phaseId, section) {
     proposal.phaseScopeItems = proposal.phaseScopeItems && typeof proposal.phaseScopeItems === "object" ? proposal.phaseScopeItems : {};
     var title = phaseTitleForSection(section && section.id);
-    var parsedParts = title ? phaseScopeTextParts(getSectionText(section), title) : { items: [] };
+    var parsedParts = title ? phaseScopeTextParts(getSectionSourceText(section), title) : { items: [] };
     if (!Object.prototype.hasOwnProperty.call(proposal.phaseScopeItems, phaseId)) {
       proposal.phaseScopeItems[phaseId] = parsedParts.items.join("\n");
     }
     return String(proposal.phaseScopeItems[phaseId] || "");
   }
 
+  function selectionListDefinitions() {
+    return [
+      { key: "scope.schematicDesign", phase: "schematicDesign", section: "schematicDesignPage", title: "Scope Items" },
+      { key: "scope.designDevelopment", phase: "designDevelopment", section: "designDevelopmentPage", title: "Scope Items" },
+      { key: "scope.constructionAdministration", title: "Scope Items" },
+      { key: "deliverables.conceptDesign", phase: "conceptDesign", title: "Deliverables" },
+      { key: "deliverables.schematicDesign", phase: "schematicDesign", title: "Deliverables" },
+      { key: "deliverables.designDevelopment", phase: "designDevelopment", title: "Deliverables" },
+      { key: "deliverables.projectSummary", title: "Deliverables" }
+    ];
+  }
+
+  function selectionListNames(value) {
+    var source = Array.isArray(value) ? value : String(value || "").split(/\r?\n/);
+    var seen = new Set();
+    return source.map(function (item) {
+      return String(typeof item === "object" && item ? item.name : item || "").replace(/^(?:[•*-])\s+/, "").replace(/\s+/g, " ").trim();
+    }).filter(function (name) {
+      var key = normalizeTitle(name);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function selectionPresetKey(name) {
+    return normalizeProjectType(name) || normalizeTitle(name);
+  }
+
+  function mergeSelectionListLibraries(target, source) {
+    var result = {};
+    selectionListDefinitions().forEach(function (definition) {
+      var a = target && target[definition.key] || {}, b = source && source[definition.key] || {};
+      function mergeEvents(property, presets) {
+        var records = new Map();
+        (Array.isArray(a[property]) ? a[property] : []).concat(Array.isArray(b[property]) ? b[property] : []).forEach(function (entry) {
+          if (!entry || typeof entry.name !== "string") return;
+          var name = entry.name.replace(/\s+/g, " ").trim();
+          var key = presets ? selectionPresetKey(name) : normalizeTitle(name);
+          if (!key) return;
+          var event = { name: name, updatedAt: Math.max(0, Number(entry.updatedAt) || 0), deleted: entry.deleted === true };
+          if (presets) event.items = selectionListNames(entry.items);
+          if (!records.has(key) || records.get(key).updatedAt <= event.updatedAt) records.set(key, event);
+        });
+        return Array.from(records.values());
+      }
+      var items = mergeEvents("items", false), presets = mergeEvents("presets", true);
+      if (items.length || presets.length || Object.prototype.hasOwnProperty.call(target || {}, definition.key) || Object.prototype.hasOwnProperty.call(source || {}, definition.key)) result[definition.key] = { items: items, presets: presets };
+    });
+    return result;
+  }
+
+  function readSelectionListLibrary() {
+    try {
+      return mergeSelectionListLibraries({}, JSON.parse(localStorage.getItem(SELECTION_LIST_LIBRARY_KEY) || "{}"));
+    } catch (error) { return {}; }
+  }
+
+  function writeSelectionListLibrary(library) {
+    try {
+      localStorage.setItem(SELECTION_LIST_LIBRARY_KEY, JSON.stringify(library));
+      return true;
+    } catch (error) {
+      console.error("Could not save selection lists", error);
+      flashStatus("List library could not be saved. Browser storage may be full.");
+      return false;
+    }
+  }
+
+  function selectionListRevision(library) {
+    var revision = Date.now();
+    Object.values(library).forEach(function (record) {
+      (record.items || []).concat(record.presets || []).forEach(function (entry) {
+        revision = Math.max(revision, (Number(entry.updatedAt) || 0) + 1);
+      });
+    });
+    return revision;
+  }
+
+  function isSelectionListItemDeleted(key, name) {
+    var record = readSelectionListLibrary()[key];
+    return !!(record && record.items.some(function (item) { return item.deleted && normalizeTitle(item.name) === normalizeTitle(name); }));
+  }
+
+  function filterSelectionListNames(key, names) {
+    var record = readSelectionListLibrary()[key] || { items: [] };
+    var deleted = new Set(record.items.filter(function (item) { return item.deleted; }).map(function (item) { return normalizeTitle(item.name); }));
+    return selectionListNames(names).filter(function (name) { return !deleted.has(normalizeTitle(name)); });
+  }
+
+  function selectionListSourceNames(key, owner) {
+    var definition = selectionListDefinitions().find(function (item) { return item.key === key; });
+    if (!definition) return [];
+    if (key === "deliverables.projectSummary") return selectionListNames(owner.project.summaryDeliverables);
+    if (key.indexOf("deliverables.") === 0) {
+      return normalizeDeliverableItems(owner.deliverables[definition.phase], definition.phase, owner).filter(function (item) { return item.included; }).map(function (item) { return item.name; });
+    }
+    if (key === "scope.constructionAdministration" && typeof owner.constructionAdministrationItems === "string") return selectionListNames(owner.constructionAdministrationItems);
+    if (definition.phase && owner.phaseScopeItems && Object.prototype.hasOwnProperty.call(owner.phaseScopeItems, definition.phase)) return selectionListNames(owner.phaseScopeItems[definition.phase]);
+    var legacyId = definition.phase || "constructionAdministration";
+    var legacy = (legacySectionDefinitions || sectionDefinitions || []).find(function (item) { return item.id === legacyId; });
+    var source = owner.sectionOverrides && owner.sectionOverrides[definition.section];
+    if (source === undefined) source = owner.legacySectionOverrides && owner.legacySectionOverrides[legacyId];
+    if (source === undefined) source = legacy && legacy.text || "";
+    return key === "scope.constructionAdministration" ? constructionAdministrationTextParts(source).items : phaseScopeTextParts(source, phaseTitleForSection(definition.section)).items;
+  }
+
+  function seedSelectionListCatalog(key, owner) {
+    var definition = selectionListDefinitions().find(function (item) { return item.key === key; });
+    var library = readSelectionListLibrary();
+    var record = library[key] || { items: [], presets: [] };
+    var defaults = key.indexOf("deliverables.") === 0 && definition.phase ? defaultPhaseDeliverables[definition.phase] || [] : [];
+    var oldLibrary = definition.phase && key.indexOf("deliverables.") === 0 ? readDeliverableLibrary()[definition.phase] || [] : [];
+    var names = selectionListNames(defaults.concat(oldLibrary, selectionListSourceNames(key, owner), ...record.presets.map(function (preset) { return preset.items; })));
+    var known = new Set(record.items.map(function (item) { return normalizeTitle(item.name); }));
+    var changed = !library[key];
+    names.forEach(function (name) {
+      if (known.has(normalizeTitle(name))) return;
+      record.items.push({ name: name, updatedAt: 0, deleted: false });
+      known.add(normalizeTitle(name));
+      changed = true;
+    });
+    if (changed) { library[key] = record; writeSelectionListLibrary(library); }
+    return record;
+  }
+
+  function selectionListOptions(key, owner) {
+    var record = seedSelectionListCatalog(key, owner);
+    var selected = new Set(selectionListSourceNames(key, owner).map(normalizeTitle));
+    owner.selectionListOrder = owner.selectionListOrder || {};
+    var names = selectionListNames((owner.selectionListOrder[key] || selectionListSourceNames(key, owner)).concat(record.items.filter(function (item) { return !item.deleted; }).map(function (item) { return item.name; })));
+    names = filterSelectionListNames(key, names);
+    var definition = selectionListDefinitions().find(function (item) { return item.key === key; });
+    if (key.indexOf("deliverables.") === 0 && definition.phase) names = names.filter(function (name) { return !isDeliverableDeleted(definition.phase, name, owner); });
+    owner.selectionListOrder[key] = names;
+    return names.map(function (name) { return { name: name, included: selected.has(normalizeTitle(name)) }; });
+  }
+
+  function setSelectionListNames(key, names, owner) {
+    names = filterSelectionListNames(key, names);
+    var definition = selectionListDefinitions().find(function (item) { return item.key === key; });
+    if (key === "deliverables.projectSummary") { owner.project.summaryDeliverables = names.join("\n"); return; }
+    if (key === "scope.constructionAdministration") { owner.constructionAdministrationItems = names.join("\n"); return; }
+    if (key.indexOf("scope.") === 0) {
+      owner.phaseScopeItems = owner.phaseScopeItems || {};
+      owner.phaseScopeItems[definition.phase] = names.join("\n");
+      return;
+    }
+    var selected = new Set(names.map(normalizeTitle));
+    var all = normalizeDeliverableItems(owner.deliverables[definition.phase], definition.phase, owner).map(function (item) { return item.name; });
+    owner.deliverables[definition.phase] = selectionListNames(names.concat(all)).map(function (name) {
+      return { name: name, included: selected.has(normalizeTitle(name)) };
+    });
+  }
+
+  function applyProjectTypeListDefaults(owner) {
+    var label = projectTypeOption(owner.project.projectType).label;
+    var library = readSelectionListLibrary();
+    selectionListDefinitions().forEach(function (definition) {
+      var record = library[definition.key];
+      var preset = record && record.presets.find(function (item) { return !item.deleted && selectionPresetKey(item.name) === selectionPresetKey(label); });
+      if (!preset) return;
+      setSelectionListNames(definition.key, preset.items, owner);
+      if (definition.key === "deliverables.projectSummary" && preset.items.length) owner.project.showSummaryDeliverables = true;
+      owner.selectionListOrder = owner.selectionListOrder || {};
+      owner.selectionListOrder[definition.key] = selectionListNames(preset.items.concat(owner.selectionListOrder[definition.key] || []));
+    });
+  }
+
+  function initializeSelectionLists(owner) {
+    var current = readSelectionListLibrary();
+    var merged = mergeSelectionListLibraries(current, owner.savedListLibrary);
+    if (JSON.stringify(current) !== JSON.stringify(merged)) writeSelectionListLibrary(merged);
+    selectionListDefinitions().forEach(function (definition) { seedSelectionListCatalog(definition.key, owner); });
+    if (owner.meta.useProjectTypeListDefaults) {
+      delete owner.meta.useProjectTypeListDefaults;
+      applyProjectTypeListDefaults(owner);
+    }
+    owner.savedListLibrary = readSelectionListLibrary();
+  }
+
+  function saveSelectionListPreset(key, name) {
+    name = String(name || "").replace(/\s+/g, " ").trim();
+    if (!name) return false;
+    seedSelectionListCatalog(key, proposal);
+    var library = readSelectionListLibrary(), record = library[key] || { items: [], presets: [] };
+    library[key] = record;
+    var preset = { name: name, items: filterSelectionListNames(key, selectionListSourceNames(key, proposal)), updatedAt: selectionListRevision(library), deleted: false };
+    var index = record.presets.findIndex(function (item) { return selectionPresetKey(item.name) === selectionPresetKey(name); });
+    if (index < 0) record.presets.push(preset); else record.presets[index] = preset;
+    return writeSelectionListLibrary(library);
+  }
+
+  function applySelectionListPreset(key, name) {
+    var record = readSelectionListLibrary()[key];
+    var preset = record && record.presets.find(function (item) { return !item.deleted && selectionPresetKey(item.name) === selectionPresetKey(name); });
+    if (!preset) return false;
+    setSelectionListNames(key, preset.items, proposal);
+    if (key === "deliverables.projectSummary" && preset.items.length) proposal.project.showSummaryDeliverables = true;
+    proposal.selectionListOrder = proposal.selectionListOrder || {};
+    proposal.selectionListOrder[key] = selectionListNames(preset.items.concat(proposal.selectionListOrder[key] || []));
+    return true;
+  }
+
+  function changeSelectionListItem(key, name, deleted) {
+    name = selectionListNames([name])[0];
+    if (!name) return false;
+    seedSelectionListCatalog(key, proposal);
+    var library = readSelectionListLibrary(), record = library[key] || { items: [], presets: [] };
+    library[key] = record;
+    var index = record.items.findIndex(function (item) { return normalizeTitle(item.name) === normalizeTitle(name); });
+    var event = { name: name, updatedAt: selectionListRevision(library), deleted: deleted };
+    if (index < 0) record.items.push(event); else record.items[index] = event;
+    if (!writeSelectionListLibrary(library)) return false;
+    var definition = selectionListDefinitions().find(function (item) { return item.key === key; });
+    if (!deleted && key.indexOf("deliverables.") === 0 && definition.phase) forgetDeletedDeliverable(definition.phase, name);
+    var selected = selectionListSourceNames(key, proposal).filter(function (item) { return normalizeTitle(item) !== normalizeTitle(name); });
+    setSelectionListNames(key, deleted ? selected : selected.concat(name), proposal);
+    return true;
+  }
+
+  function renderSelectionListControls(key, card) {
+    var options = selectionListOptions(key, proposal);
+    var library = readSelectionListLibrary(), record = library[key] || { items: [], presets: [] };
+    var presets = record.presets.filter(function (preset) { return !preset.deleted; });
+    var tools = document.createElement("div");
+    tools.className = "section-preset-tools";
+    tools.innerHTML = "<strong>Saved lists</strong>";
+    var presetRow = document.createElement("div");
+    presetRow.className = "section-preset-row";
+    var select = document.createElement("select");
+    select.setAttribute("aria-label", "Saved lists");
+    select.appendChild(new Option("Select saved list", ""));
+    presets.forEach(function (preset) { select.appendChild(new Option(preset.name, preset.name)); });
+    var projectLabel = projectTypeOption(proposal.project.projectType).label;
+    var matching = presets.find(function (preset) { return selectionPresetKey(preset.name) === selectionPresetKey(projectLabel); });
+    select.value = matching ? matching.name : "";
+    presetRow.appendChild(select);
+    var name = document.createElement("input");
+    name.type = "text";
+    name.value = matching ? matching.name : projectLabel;
+    name.placeholder = "List name";
+    name.setAttribute("aria-label", "List name");
+    name.maxLength = 90;
+    presetRow.appendChild(name);
+    select.addEventListener("change", function () { if (select.value) name.value = select.value; });
+    function changed(rerender) {
+      markDirty();
+      saveCurrentDraft();
+      if (rerender) renderAll(); else renderPreview();
+    }
+    function toolButton(text, action, label) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary compact";
+      button.textContent = text;
+      if (label) button.setAttribute("aria-label", label);
+      button.addEventListener("click", action);
+      presetRow.appendChild(button);
+      return button;
+    }
+    toolButton("Save", function () {
+      if (!name.value.trim()) { name.focus(); return; }
+      if (saveSelectionListPreset(key, name.value)) {
+        var savedName = name.value.trim();
+        changed(true);
+        flashStatus('Saved list "' + savedName + '". Existing lists with this name are replaced.');
+      }
+    }, "Save selected items as list");
+    toolButton("Apply", function () {
+      if (select.value && applySelectionListPreset(key, select.value)) changed(true);
+    }, "Apply saved list");
+    toolButton("Delete list", function () {
+      if (!select.value) return;
+      var library = readSelectionListLibrary();
+      var preset = library[key].presets.find(function (item) { return !item.deleted && selectionPresetKey(item.name) === selectionPresetKey(select.value); });
+      if (!preset) return;
+      preset.deleted = true;
+      preset.updatedAt = selectionListRevision(library);
+      if (writeSelectionListLibrary(library)) changed(true);
+    }, "Delete saved list");
+    tools.appendChild(presetRow);
+    card.appendChild(tools);
+
+    var bulk = document.createElement("div");
+    bulk.className = "selection-list-bulk";
+    [
+      { label: "Select all", names: options.map(function (item) { return item.name; }) },
+      { label: "Clear selection", names: [] }
+    ].forEach(function (action) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary compact";
+      button.textContent = action.label;
+      button.addEventListener("click", function () { setSelectionListNames(key, action.names, proposal); changed(true); });
+      bulk.appendChild(button);
+    });
+    card.appendChild(bulk);
+    var list = document.createElement("div");
+    list.className = "option-list selection-options";
+    options.forEach(function (item, index) {
+      var itemWrap = document.createElement("div");
+      itemWrap.className = "selection-item-row";
+      var label = document.createElement("label");
+      label.className = "option-row selection-option" + (item.included ? " active" : "");
+      var checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = item.name;
+      checkbox.checked = item.included;
+      checkbox.setAttribute("aria-label", item.name);
+      label.appendChild(checkbox);
+      var copy = document.createElement("span");
+      copy.className = "selection-option-copy";
+      var strong = document.createElement("strong");
+      strong.textContent = item.name;
+      var status = document.createElement("span");
+      function updateStatus() {
+        label.classList.toggle("active", checkbox.checked);
+        status.textContent = isMultifamilyContent(item.name) ? "Hidden for this project type" : checkbox.checked ? "Included in this proposal" : "Not included in this proposal";
+      }
+      updateStatus();
+      copy.appendChild(strong); copy.appendChild(status); label.appendChild(copy);
+      checkbox.addEventListener("change", function () {
+        var selected = selectionListOptions(key, proposal).filter(function (option) {
+          return normalizeTitle(option.name) === normalizeTitle(item.name) ? checkbox.checked : option.included;
+        }).map(function (option) { return option.name; });
+        setSelectionListNames(key, selected, proposal);
+        updateStatus();
+        changed(false);
+      });
+      itemWrap.appendChild(label);
+      var controls = document.createElement("div");
+      controls.className = "selection-item-actions";
+      [{ label: "↑", offset: -1, name: "up" }, { label: "↓", offset: 1, name: "down" }].forEach(function (action) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "secondary compact";
+        button.textContent = action.label;
+        button.setAttribute("aria-label", "Move " + item.name + " " + action.name);
+        button.disabled = index + action.offset < 0 || index + action.offset >= options.length;
+        button.addEventListener("click", function () {
+          var ordered = selectionListOptions(key, proposal);
+          var moved = ordered.splice(index, 1)[0]; ordered.splice(index + action.offset, 0, moved);
+          proposal.selectionListOrder[key] = ordered.map(function (option) { return option.name; });
+          setSelectionListNames(key, ordered.filter(function (option) { return option.included; }).map(function (option) { return option.name; }), proposal);
+          changed(true);
+        });
+        controls.appendChild(button);
+      });
+      var remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "secondary compact";
+      remove.textContent = "Delete";
+      remove.setAttribute("aria-label", "Delete " + item.name + " from saved items");
+      remove.addEventListener("click", function () { if (changeSelectionListItem(key, item.name, true)) changed(true); });
+      controls.appendChild(remove);
+      itemWrap.appendChild(controls); list.appendChild(itemWrap);
+    });
+    card.appendChild(list);
+    var addRow = document.createElement("div");
+    addRow.className = "deliverable-add-row";
+    var input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Add an item to this list";
+    input.setAttribute("aria-label", "New list item");
+    addRow.appendChild(input);
+    var add = document.createElement("button");
+    add.type = "button";
+    add.className = "secondary compact";
+    add.textContent = "Add";
+    function addItem() {
+      if (!input.value.trim()) { input.focus(); return; }
+      if (changeSelectionListItem(key, input.value, false)) changed(true);
+    }
+    add.addEventListener("click", addItem);
+    input.addEventListener("keydown", function (event) { if (event.key === "Enter") { event.preventDefault(); addItem(); } });
+    addRow.appendChild(add); card.appendChild(addRow);
+  }
+
   function renderPhaseScopeItemsCard(phaseId, section) {
-    var card = panelCard("Scope Items", "One item per line.");
+    var card = panelCard("Scope Items", "Choose items for this proposal.");
     var fixedTitle = document.createElement("div");
     fixedTitle.className = "section-fixed-title";
-    fixedTitle.innerHTML = '<span>Permanent list title</span><strong>' + escapeHtml(PHASE_SCOPE_FIXED_HEADING) + '</strong>';
+    fixedTitle.innerHTML = '<span>Permanent list title</span><strong>' + escapeHtml(phaseScopeHeading()) + '</strong>';
     card.appendChild(fixedTitle);
-    var textarea = document.createElement("textarea");
-    textarea.value = ensurePhaseScopeItems(phaseId, section);
-    textarea.placeholder = "One item per line";
-    textarea.setAttribute("aria-label", phaseTitleForSection(section.id) + " scope items");
-    textarea.addEventListener("input", function () {
-      proposal.phaseScopeItems[phaseId] = uniqueCleanLines(textarea.value.split(/\r?\n/).map(function (line) {
-        return line.replace(/^(?:[•*-]|â€¢)\s+/, "").trim();
-      })).join("\n");
-      markDirty();
-      renderPreview();
-      saveCurrentDraft();
-    });
-    card.appendChild(textarea);
+    card.dataset.selectionList = "scope." + phaseId;
+    renderSelectionListControls("scope." + phaseId, card);
     return card;
   }
 
@@ -10372,24 +11072,13 @@
   }
 
   function renderConstructionAdministrationItemsCard() {
-    var card = panelCard("Construction Administration Items", "One item per line.");
+    var card = panelCard("Scope Items", "Choose items for this proposal.");
     var fixedTitle = document.createElement("div");
     fixedTitle.className = "section-fixed-title";
     fixedTitle.innerHTML = '<span>Permanent list title</span><strong>This phase includes the following:</strong>';
     card.appendChild(fixedTitle);
-    var textarea = document.createElement("textarea");
-    textarea.value = constructionAdministrationListItems().join("\n");
-    textarea.placeholder = "One item per line";
-    textarea.setAttribute("aria-label", "Construction Administration items");
-    textarea.addEventListener("input", function () {
-      proposal.constructionAdministrationItems = uniqueCleanLines(textarea.value.split(/\r?\n/).map(function (line) {
-        return line.replace(/^(?:[•*-]|â€¢)\s+/, "").trim();
-      })).join("\n");
-      markDirty();
-      renderPreview();
-      saveCurrentDraft();
-    });
-    card.appendChild(textarea);
+    card.dataset.selectionList = "scope.constructionAdministration";
+    renderSelectionListControls("scope.constructionAdministration", card);
     return card;
   }
 
@@ -10397,18 +11086,9 @@
     proposal.deliverables = proposal.deliverables || {};
     proposal.deliverables[phaseId] = normalizeDeliverableItems(proposal.deliverables[phaseId], phaseId);
 
-    var card = panelCard("Deliverables", "One item per line.");
-    var textarea = document.createElement("textarea");
-    textarea.value = selectedDeliverableNames(phaseId).join("\n");
-    textarea.placeholder = "One item per line";
-    textarea.setAttribute("aria-label", phaseTitleForSection(phasePageSectionId(phaseId)) + " deliverables");
-    textarea.addEventListener("input", function () {
-      setPhaseDeliverableNames(phaseId, textarea.value);
-      markDirty();
-      renderPreview();
-      saveCurrentDraft();
-    });
-    card.appendChild(textarea);
+    var card = panelCard("Deliverables", "Choose items for this proposal.");
+    card.dataset.selectionList = "deliverables." + phaseId;
+    renderSelectionListControls("deliverables." + phaseId, card);
     return card;
   }
 
@@ -10496,7 +11176,7 @@
 
     return {
       wrap: wrap,
-      attach: function (textarea, valueGetter) {
+      attach: function (textarea, valueGetter, valueSetter) {
         save.addEventListener("click", function () {
           var name = nameInput.value.trim();
           if (!name) {
@@ -10508,22 +11188,32 @@
           renderAll();
         });
         apply.addEventListener("click", function () {
+          if (select.value === "") {
+            return;
+          }
           var list = savedTextPresetsFor(section.id);
           var preset = list[Number(select.value)];
           if (!preset) {
             return;
           }
-          proposal.sectionOverrides[section.id] = section.id === "process"
-            ? stripProcessFixedHeading(preset.text)
-            : preset.text;
-          if (section.id === "projectSummary") {
-            proposal.projectSummarySections = parseProjectSummaryText(preset.text);
+          if (valueSetter) {
+            valueSetter(preset.text);
+          } else {
+            proposal.sectionOverrides[section.id] = section.id === "process"
+              ? stripProcessFixedHeading(preset.text)
+              : preset.text;
+            if (section.id === "projectSummary") {
+              proposal.projectSummarySections = parseProjectSummaryText(preset.text);
+            }
           }
           markDirty();
           saveCurrentDraft();
           renderAll();
         });
         remove.addEventListener("click", function () {
+          if (select.value === "") {
+            return;
+          }
           var index = Number(select.value);
           var list = savedTextPresetsFor(section.id);
           if (!list[index]) {
@@ -10579,13 +11269,13 @@
 
   function projectContext() {
     var p = proposal.project || {};
-    var program = compactSentence(p.program, "the proposed development");
+    var program = compactSentence(filterMultifamilyText(p.program), "the proposed development");
     var scope = compactSentence(p.scopeOfWork, "architectural design services");
     var ownerRequirements = cleanLines(String(p.ownerRequirements || "").split(/\r?\n/));
     var ownerProvidedInfo = cleanLines(String(p.ownerProvidedInfo || "").split(/\r?\n/));
-    var summaryDeliverables = cleanLines(String(p.summaryDeliverables || "").split(/\r?\n/));
+    var summaryDeliverables = filterSelectionListNames("deliverables.projectSummary", cleanLines(String(p.summaryDeliverables || "").split(/\r?\n/)));
     var maAssumptions = cleanLines(String(p.maAssumptions || "").split(/\r?\n/));
-    var programNotes = splitProgramNotes(p.program);
+    var programNotes = splitProgramNotes(filterMultifamilyText(p.program));
     var programRequirementItems = programNotes.map(function (note) {
       return formatProgramNote(note, "requirement");
     }).filter(Boolean);
@@ -10724,12 +11414,12 @@
 
   function renderProposalPages() {
     if (currentThemeId() === "modernLandscape") {
-      return renderModernLandscapePages();
+      return filterProjectTypeHtml(renderModernLandscapePages());
     }
     if (currentThemeId() === "northlinePortrait") {
-      return renderNorthlinePortraitPages();
+      return filterProjectTypeHtml(renderNorthlinePortraitPages());
     }
-    return renderStructuredPortraitPages(currentThemeId() === "studioPortrait").join("");
+    return filterProjectTypeHtml(renderStructuredPortraitPages(currentThemeId() === "studioPortrait").join(""));
   }
 
   function renderSelectedCoverPage(generatedCover) {
@@ -10781,7 +11471,9 @@
       .concat(buildPhasePageModels("schematicDesign", "Schematic Design", "schematic"))
       .concat(buildPhasePageModels("designDevelopment", "Design Development", "design"));
     if (isSectionIncluded("constructionDocumentsPage")) {
-      pages.push({ key: "cd-1", header: "Construction Documents", photoType: "documents", sectionIds: ["constructionDocumentsPage"], landscapePhoto: usesLandscapeImageLayout("constructionDocumentsPage"), content: function () { return renderPageSectionText("constructionDocumentsPage"); } });
+      splitContinuousSectionText(renderPageSectionText("constructionDocumentsPage"), 2800).forEach(function (chunk, index) {
+        pages.push({ key: "cd-" + (index + 1), header: "Construction Documents", photoType: "documents", sectionIds: ["constructionDocumentsPage"], landscapePhoto: usesLandscapeImageLayout("constructionDocumentsPage"), content: function () { return textToHtmlContinuous(chunk); } });
+      });
     }
     if (isSectionIncluded("biddingConstructionAdministration")) {
       pages.push({ key: "bid-ca-1", header: "Bidding and Construction Administration", photoType: "construction", sectionIds: ["biddingConstructionAdministration"], landscapePhoto: usesLandscapeImageLayout("biddingConstructionAdministration"), content: renderBiddingAndConstructionAdminPageHtml });
@@ -10805,6 +11497,7 @@
     return ProposalTextFlow.prepare(pages, {
       theme: currentThemeId(),
       settings: proposal.textFrameBottoms || {},
+      measureSections: ["schematicDesignPage", "designDevelopmentPage", "constructionDocumentsPage"],
       render: function (page, pageNumber) {
         return currentThemeId() === "northlinePortrait"
           ? renderNorthlineModelPage(page, pageNumber)
@@ -10968,20 +11661,21 @@
   }
 
   function phaseTextChunks(phaseId, title) {
-    var text = renderPageSectionText(phasePageSectionId(phaseId)) || legacySectionText(phaseId);
+    var text = renderPageSectionText(phasePageSectionId(phaseId));
     var parts = phaseScopeTextParts(text, title);
     var storedScopeItems = phaseId !== "conceptDesign" && proposal.phaseScopeItems && Object.prototype.hasOwnProperty.call(proposal.phaseScopeItems, phaseId)
       ? cleanLines(String(proposal.phaseScopeItems[phaseId] || "").split(/\r?\n/))
       : (phaseId === "conceptDesign" ? [] : parts.items);
+    storedScopeItems = filterSelectionListNames("scope." + phaseId, storedScopeItems);
     var scope = [
       parts.narrative,
-      storedScopeItems.length ? PHASE_SCOPE_FIXED_HEADING : "",
+      storedScopeItems.length ? phaseScopeHeading() : "",
       storedScopeItems.length ? bulletText(storedScopeItems.join("\n")) : ""
     ].filter(Boolean).join("\n\n");
     var deliverables = selectedDeliverableNames(phaseId);
     var deliverableText = deliverables.length ? "Deliverables for this phase include:\n" + bulletText(deliverables.join("\n")) : "";
     // Keep phase content on the current page unless it is genuinely likely to overflow.
-    return splitContinuousSectionText([scope, deliverableText].filter(Boolean).join("\n\n"), 3400);
+    return splitContinuousSectionText([scope, deliverableText].filter(Boolean).join("\n\n"), phaseId === "designDevelopment" || /unit layout and design/i.test(parts.narrative) ? 2800 : 3400);
   }
 
   function splitContinuousSectionText(text, maxCharacters, continuationMaxCharacters) {
@@ -11527,7 +12221,7 @@
       ? proposal.sectionOverrides.projectSummary
       : "";
     var introText = normalizeProjectSummaryNarrativeText(customSummaryText).trim() || defaultProjectSummaryNarrative();
-    var blocks = mergeProjectSummarySentenceContinuations(textBlocksForPaging(introText));
+    var blocks = mergeProjectSummarySentenceContinuations(textBlocksForPaging(filterMultifamilyText(introText)));
     if (proposal.project.showOwnerRequirements !== false) {
       blocks.push("Basic owner requirements:");
       blocks = blocks.concat(textBlocksForPaging(bulletText((c.ownerRequirements.length ? c.ownerRequirements : inferredOwnerRequirements()).join("\n"))));
@@ -11652,7 +12346,7 @@
   }
 
   function renderPhasePageHtml(legacyId, title, mode) {
-    var text = renderPageSectionText(phasePageSectionId(legacyId)) || legacySectionText(legacyId);
+    var text = renderPageSectionText(phasePageSectionId(legacyId));
     var parts = splitLegacyPhaseText(text, title);
     var selectedDeliverables = selectedDeliverableNames(legacyId);
     var selectedDeliverableText = selectedDeliverables.length
@@ -11693,10 +12387,10 @@
       paragraphsFromText(constructionParts.narrative).slice(1).map(function (paragraph) {
         return "<p>" + escapeHtml(paragraph) + "</p>";
       }).join("") +
-      '<p>' + escapeHtml(constructionParts.listTitle) + '</p>' +
+      (constructionItems.length ? '<p>' + escapeHtml(constructionParts.listTitle) + '</p>' +
       '<ul>' + constructionItems.map(function (item) {
         return "<li>" + escapeHtml(item) + "</li>";
-      }).join("") + '</ul>' +
+      }).join("") + '</ul>' : '') +
       '</div>';
   }
 
@@ -11719,11 +12413,11 @@
 
   function constructionAdministrationListItems() {
     if (typeof proposal.constructionAdministrationItems === "string") {
-      return uniqueCleanLines(proposal.constructionAdministrationItems.split(/\r?\n/).map(function (line) {
+      return filterSelectionListNames("scope.constructionAdministration", uniqueCleanLines(proposal.constructionAdministrationItems.split(/\r?\n/).map(function (line) {
         return line.replace(/^(?:[•*-]|â€¢)\s+/, "").trim();
-      }));
+      })));
     }
-    return constructionAdministrationTextParts(stripOpeningTitle(legacySectionText("constructionAdministration"), ["construction administration"])).items;
+    return filterSelectionListNames("scope.constructionAdministration", constructionAdministrationTextParts(stripOpeningTitle(legacySectionText("constructionAdministration"), ["construction administration"])).items);
   }
 
   function renderDesignSchedulePageHtml() {
@@ -11827,7 +12521,7 @@
     }
     var source = Object.prototype.hasOwnProperty.call(proposal.sectionOverrides, "projectSummary")
       ? proposal.sectionOverrides.projectSummary
-      : (section ? getSectionText(section) : defaultProjectSummaryNarrative());
+      : (section ? getSectionSourceText(section) : defaultProjectSummaryNarrative());
     return parseProjectSummaryText(source);
   }
 
@@ -11929,6 +12623,9 @@
   }
 
   function legacySectionText(id) {
+    if (proposal.legacySectionOverrides && Object.prototype.hasOwnProperty.call(proposal.legacySectionOverrides, id)) {
+      return proposal.legacySectionOverrides[id];
+    }
     var section = legacySectionDefinitions.find(function (item) { return item.id === id; });
     if (!section) {
       return "";
@@ -12069,12 +12766,17 @@
   }
 
   function editableSectionText(section) {
-    var text = getSectionText(section);
+    var text = getSectionSourceText(section);
     if (section && section.id === "process") {
       return stripProcessFixedHeading(text);
     }
     var title = section ? phaseTitleForSection(section.id) : "";
     return title ? phaseScopeTextParts(text, title).narrative : text;
+  }
+
+  function phaseScopeHeading() {
+    var overrides = proposal && proposal.generatedTextOverrides || {};
+    return Object.prototype.hasOwnProperty.call(overrides, "phaseScopeHeading") ? overrides.phaseScopeHeading : PHASE_SCOPE_FIXED_HEADING;
   }
 
   function phaseScopeTextParts(text, title) {
@@ -12085,7 +12787,7 @@
       var trimmed = line.trim();
       if (isBulletLine(trimmed)) {
         items.push(trimmed.replace(/^(?:[•*-]|â€¢)\s+/, "").trim());
-      } else if (normalizeTitle(trimmed) === normalizeTitle(PHASE_SCOPE_FIXED_HEADING)) {
+      } else if ((normalizeTitle(trimmed) === normalizeTitle(PHASE_SCOPE_FIXED_HEADING) || normalizeTitle(trimmed) === normalizeTitle(phaseScopeHeading()))) {
         return;
       } else {
         narrativeLines.push(line);
@@ -12502,5 +13204,204 @@
     });
 
   configureStructuredProposalModel();
+
+
+  var globalChangesState = null;
+
+  function currentGlobalChangesState() {
+    if (!globalChangesState || globalChangesState.draftId !== proposal.meta.id) {
+      globalChangesState = { draftId: proposal.meta.id, request: "", from: "", to: "", subject: "", plan: null, undo: null, message: "" };
+    }
+    return globalChangesState;
+  }
+
+  function buildGlobalChangePlan(rule) {
+    var original = proposal;
+    var originalLegacyText = {};
+    legacySectionDefinitions.forEach(function (section) { originalLegacyText[section.id] = legacySectionText(section.id); });
+    var originalSectionText = {}, originalSectionTitles = {};
+    sectionDefinitions.forEach(function (section) {
+      originalSectionText[section.id] = getSectionText(section);
+      originalSectionTitles[section.id] = sectionDisplayTitle(section);
+    });
+    var originalScopeHeading = phaseScopeHeading();
+    var originalFeeNotes = compensationFeeNotesText();
+    var plan = ProposalGlobalChanges.plan(proposal, rule);
+    var candidate = JSON.parse(JSON.stringify(proposal));
+    ProposalGlobalChanges.apply(candidate, plan.changes);
+    // Source fields regenerate most copy. Only store an override where generated
+    // prose still contains the old value after its source fields have changed.
+    try {
+      proposal = candidate;
+      function addChange(path, before, after, options) {
+        var change = Object.assign({ path: path, before: before, after: after, matches: [] }, options);
+        var index = plan.changes.findIndex(function (item) { return item.path.join(".") === path.join("."); });
+        if (index >= 0) plan.changes[index] = change;
+        else plan.changes.push(change);
+        ProposalGlobalChanges.apply(candidate, [change]);
+      }
+      function replaceDefault(path, text, currentText, label) {
+        var result = ProposalGlobalChanges.replaceText(text, rule);
+        if (result.text !== text && result.text !== currentText) {
+          addChange(path, getValue(original, path.join(".")) || undefined, result.text, { matches: result.matches, previewBefore: text, label: label });
+        }
+      }
+      // A renamed default must not be reinserted by list normalization on render
+      // or reload. Keep its old key retired in this proposal, including for undo.
+      Object.keys(candidate.deliverables || {}).forEach(function (phaseId) {
+        var renamed = plan.changes.filter(function (change) { return change.path[0] === "deliverables" && change.path[1] === phaseId && change.path[3] === "name"; });
+        if (!renamed.length) return;
+        var before = original.deletedDeliverables[phaseId];
+        var retired = Array.isArray(before) ? before.slice() : [];
+        renamed.forEach(function (change) {
+          var oldKey = normalizeTitle(change.before), newKey = normalizeTitle(change.after);
+          if (oldKey !== newKey && retired.indexOf(oldKey) < 0) retired.push(oldKey);
+          retired = retired.filter(function (key) { return key !== newKey; });
+        });
+        if (JSON.stringify(before) !== JSON.stringify(retired)) addChange(["deletedDeliverables", phaseId], before, retired, { internal: true });
+      });
+      if (candidate.project.maAssumptionsAuto !== false && plan.changes.some(function (change) { return change.path.join(".") === "project.maAssumptions"; })) {
+        addChange(["project", "maAssumptionsAuto"], original.project.maAssumptionsAuto, false, { internal: true });
+      }
+      // These sources bypass sectionOverrides in the structured page renderers.
+      // Capture only affected defaults so other generated sections remain live.
+      legacySectionDefinitions.forEach(function (section) {
+        var path = ["legacySectionOverrides", section.id];
+        if (!plan.changes.some(function (change) { return change.path.join(".") === path.join("."); })) {
+          replaceDefault(path, originalLegacyText[section.id], legacySectionText(section.id), section.title + " generated copy");
+        }
+      });
+      if (!plan.changes.some(function (change) { return change.path.join(".") === "generatedTextOverrides.phaseScopeHeading"; })) {
+        replaceDefault(["generatedTextOverrides", "phaseScopeHeading"], originalScopeHeading, phaseScopeHeading(), "Phase scope heading");
+      }
+      var feeNotes = compensationFeeNotesText();
+      var changedFeeNotes = ProposalGlobalChanges.replaceText(originalFeeNotes, rule);
+      if (changedFeeNotes.text !== feeNotes && candidate.compensation.feeNotesAuto === true) {
+        addChange(["compensation", "feeNotesText"], original.compensation.feeNotesText, changedFeeNotes.text, { matches: changedFeeNotes.matches, previewBefore: originalFeeNotes, label: "Generated fee notes" });
+        addChange(["compensation", "feeNotesAuto"], original.compensation.feeNotesAuto, false, { internal: true });
+      }
+      sectionDefinitions.forEach(function (section) {
+        var text = originalSectionText[section.id];
+        var result = ProposalGlobalChanges.replaceText(text, rule);
+        var path = ["sectionOverrides", section.id];
+        if (result.text !== text && result.text !== getSectionText(section) && !plan.changes.some(function (change) { return change.path.join(".") === path.join("."); })) {
+          plan.changes.push({ path: path, before: original.sectionOverrides[section.id], after: result.text, matches: result.matches, previewBefore: text, label: sectionDisplayTitle(section) + " copy" });
+        }
+        var title = originalSectionTitles[section.id];
+        var changedTitle = ProposalGlobalChanges.replaceText(title, rule);
+        var titlePath = ["sectionTitleOverrides", section.id];
+        if (changedTitle.text !== title && changedTitle.text !== sectionDisplayTitle(section) && !plan.changes.some(function (change) { return change.path.join(".") === titlePath.join("."); })) {
+          plan.changes.push({ path: titlePath, before: original.sectionTitleOverrides[section.id], after: changedTitle.text, matches: changedTitle.matches, previewBefore: title, label: title + " title" });
+        }
+      });
+    } finally { proposal = original; }
+    return plan;
+  }
+
+  function globalChangePathLabel(path) {
+    return path.map(function (part) {
+      return /^\d+$/.test(part) ? String(Number(part) + 1) : part.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, function (letter) { return letter.toUpperCase(); });
+    }).join(" / ");
+  }
+
+  function renderGlobalChangesPanel() {
+    var state = currentGlobalChangesState();
+    els.editor.innerHTML = "";
+    var card = panelCard("Change everywhere", "Update editable text throughout this proposal, including excluded sections. Review the matches, then apply them together.");
+    function field(labelText, key, placeholder) {
+      var wrap = document.createElement("div"); wrap.className = "field";
+      var label = document.createElement("label"); label.htmlFor = "global-change-" + key; label.textContent = labelText;
+      var input = document.createElement("input"); input.id = label.htmlFor; input.value = state[key]; input.placeholder = placeholder;
+      input.addEventListener("input", function () {
+        state[key] = input.value; state.plan = null; state.message = "";
+        results.replaceChildren(); status.textContent = "";
+      });
+      wrap.appendChild(label); wrap.appendChild(input); return wrap;
+    }
+    card.appendChild(field("Request a change", "request", "Change levels from 5 to 6 everywhere"));
+    var interpret = document.createElement("button"); interpret.type = "button"; interpret.className = "secondary"; interpret.id = "interpret-global-change"; interpret.textContent = "Read request";
+    interpret.addEventListener("click", function () {
+      try {
+        var rule = ProposalGlobalChanges.parseRequest(state.request);
+        state.from = rule.from; state.to = rule.to; state.subject = rule.subject;
+        state.plan = buildGlobalChangePlan(rule); state.message = "";
+      } catch (error) { state.plan = null; state.message = error.message; }
+      renderGlobalChangesPanel();
+    });
+    card.appendChild(interpret);
+    var help = document.createElement("p"); help.className = "field-help";
+    help.textContent = 'Examples: “Change levels from 5 to 6”, “Change 152 units to 160 units”, or “Replace Old Name with New Name”. You can also enter the values below.';
+    card.appendChild(help);
+    var grid = document.createElement("div"); grid.className = "field-grid";
+    grid.appendChild(field("Current value", "from", "5, five, or Old Name"));
+    grid.appendChild(field("New value", "to", "6, six, or New Name"));
+    grid.appendChild(field("Quantity refers to (optional)", "subject", "levels, units, parking spaces…"));
+    card.appendChild(grid);
+    var note = document.createElement("p"); note.className = "field-help";
+    note.textContent = "Numbers match digits and written-out forms. Levels also matches floors, stories, and storeys. Leave the quantity blank to match the value in any editable text. Names match the spelling entered, regardless of capitalization. Uploaded images and PDFs need separate editing. Use the existing fee editors for financial totals and rates.";
+    card.appendChild(note);
+    var review = document.createElement("button"); review.type = "button"; review.className = "secondary"; review.id = "review-global-change"; review.textContent = "Review changes";
+    review.addEventListener("click", function () {
+      try { state.plan = buildGlobalChangePlan(state); state.message = ""; }
+      catch (error) { state.plan = null; state.message = error.message; }
+      renderGlobalChangesPanel();
+    });
+    card.appendChild(review);
+    var status = document.createElement("p"); status.className = "global-change-status"; status.setAttribute("role", "status"); status.textContent = state.message;
+    card.appendChild(status);
+    var results = document.createElement("div"); results.className = "global-change-results"; results.id = "global-change-results";
+    if (state.plan) {
+      var changes = state.plan.changes;
+      var visibleChanges = changes.filter(function (change) { return !change.internal; });
+      status.textContent = state.message || (changes.length ? visibleChanges.length + " text fields or sections will change. Generated copy will also reflect updated source fields." : "No matching text found. Check the current value and quantity, or try a different spelling.");
+      visibleChanges.forEach(function (change) {
+        var item = document.createElement("div"); item.className = "global-change-item";
+        var title = document.createElement("strong"); title.textContent = change.label || globalChangePathLabel(change.path); item.appendChild(title);
+        var source = change.previewBefore === undefined ? change.before : change.previewBefore;
+        change.matches.forEach(function (match) {
+          var prefix = (match.start > 65 ? "…" : "") + source.slice(Math.max(0, match.start - 65), match.start);
+          var suffix = source.slice(match.end, match.end + 65) + (source.length > match.end + 65 ? "…" : "");
+          var before = document.createElement("p"); before.className = "global-change-before"; before.textContent = "Before: " + prefix + match.before + suffix;
+          var after = document.createElement("p"); after.className = "global-change-after"; after.textContent = "After: " + prefix + match.after + suffix;
+          item.appendChild(before); item.appendChild(after);
+        });
+        results.appendChild(item);
+      });
+      if (visibleChanges.length) {
+        var apply = document.createElement("button"); apply.type = "button"; apply.className = "primary"; apply.id = "apply-global-change"; apply.textContent = "Apply throughout proposal";
+        apply.addEventListener("click", function () {
+          var fresh = buildGlobalChangePlan(state.plan.rule);
+          if (JSON.stringify(fresh.changes) !== JSON.stringify(state.plan.changes)) {
+            state.plan = fresh; state.message = "The proposal changed. Review the refreshed matches before applying."; renderGlobalChangesPanel(); return;
+          }
+          ProposalGlobalChanges.apply(proposal, changes);
+          state.undo = changes; state.plan = null;
+          state.message = "Updated " + visibleChanges.length + " text fields or sections throughout this proposal.";
+          markDirty(); saveCurrentDraft(); renderAll();
+        });
+        results.appendChild(apply);
+      }
+    }
+    card.appendChild(results);
+    if (state.undo) {
+      var undo = document.createElement("button"); undo.type = "button"; undo.className = "secondary"; undo.id = "undo-global-change"; undo.textContent = "Undo last global change";
+      undo.addEventListener("click", function () {
+        if (state.undo.some(function (change) { return JSON.stringify(getValue(proposal, change.path.join("."))) !== JSON.stringify(change.after); })) {
+          state.message = "Some affected text has been edited since this change. Undo would overwrite those edits; review those fields manually.";
+          state.plan = null; renderGlobalChangesPanel(); return;
+        }
+        state.undo.forEach(function (change) {
+          var parent = proposal;
+          change.path.slice(0, -1).forEach(function (key) { parent = parent[key]; });
+          if (change.before === undefined) delete parent[change.path[change.path.length - 1]];
+          else parent[change.path[change.path.length - 1]] = change.before;
+        });
+        state.undo = null; state.plan = null; state.message = "Global change undone.";
+        markDirty(); saveCurrentDraft(); renderAll();
+      });
+      card.appendChild(undo);
+    }
+    els.editor.appendChild(card);
+  }
 
 }());

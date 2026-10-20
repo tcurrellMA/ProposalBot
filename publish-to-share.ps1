@@ -22,7 +22,7 @@ function Copy-FolderContents([string]$From, [string]$To) {
 }
 
 $files = @(
-  'app.js', 'text-flow.js', 'server.js', 'shared-drafts.js', 'indesign-template.js',
+  'app.js', 'text-flow.js', 'global-changes.js', 'server.js', 'shared-drafts.js', 'indesign-template.js',
   'index.html', 'styles.css', 'version.json', 'MA Logo.jpg',
   'README.md', 'DEPLOYMENT_STATUS.md', 'Full Service Example.pdf', 'Dockerfile', 'compose.yaml',
   '.dockerignore', '.env.example', 'host-config.example.ps1', 'start-proposal-bot-host.ps1',
