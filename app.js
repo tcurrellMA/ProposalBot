@@ -96,6 +96,7 @@
   var photoFrameResizeSession = null;
   var activeTab = "info";
   var activeSectionId = "intro";
+  var previewRenderContext = null;
   var isDirty = false;
   var photoSelectionsChanged = false;
   var autoSaveTimer = null;
@@ -1054,12 +1055,12 @@
     ];
   }
 
-  function renderAll() {
+  function renderAll(options) {
     renderTabs();
     renderDraftSelect();
     renderNav();
     renderEditor();
-    renderPreview();
+    renderPreview(options);
     updateHeader();
   }
 
@@ -1087,7 +1088,7 @@
         activeTab = "sections";
         activeSectionId = section.id;
         saveCurrentDraft();
-        renderAll();
+        renderAll({ navigateToSection: true });
       });
       els.nav.appendChild(button);
     });
@@ -3454,7 +3455,15 @@
     proposal.photoFrameHeights[handle.dataset.photoFrameKey] = height;
     markDirty();
     saveCurrentDraft();
-    if (Object.keys(proposal.textFrameBottoms || {}).length) renderPreview();
+    if (Object.keys(proposal.textFrameBottoms || {}).length) {
+      var key = handle.dataset.photoFrameKey;
+      var focused = document.activeElement === handle;
+      renderPreview();
+      if (focused) {
+        var replacement = Array.from(els.preview.querySelectorAll(".photo-frame-resize-handle")).find(function (item) { return item.dataset.photoFrameKey === key; });
+        if (replacement) replacement.focus({ preventScroll: true });
+      }
+    }
   }
 
   function beginPreviewPhotoFrameResize(event) {
@@ -3506,12 +3515,16 @@
   function keyPreviewPhotoFrameResize(event) {
     var handle = event.target.closest(".photo-frame-resize-handle");
     if (!handle || !/^(ArrowUp|ArrowDown|Home)$/.test(event.key)) return;
+    event.preventDefault();
+    var preview = handle.closest(".proposal-document");
+    var scrollTop = preview.scrollTop, scrollLeft = preview.scrollLeft;
     var height = event.key === "Home" ? Number(handle.closest("figure").dataset.defaultFrameHeight) :
       Number(handle.getAttribute("aria-valuenow")) + (event.key === "ArrowUp" ? 1 : -1) * (event.shiftKey ? 0.5 : 0.1);
     height = normalizePhotoFrameHeight(height);
     applyPreviewPhotoFrameHeight(handle, height);
     savePreviewPhotoFrameHeight(handle, height);
-    event.preventDefault();
+    preview.scrollTop = scrollTop;
+    preview.scrollLeft = scrollLeft;
   }
 
   function renderPhotoChoiceOptions(selectedPhotoId) {
@@ -5539,23 +5552,31 @@
   }
 
   function loadTesseract(callback) {
-    if (window.Tesseract) {
-      callback();
-      return;
+    if (window.Tesseract) { callback(); return; }
+    var script = document.querySelector('script[data-reader="tesseract"]');
+    var created = !script;
+    if (created) {
+      script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+      script.async = true;
+      script.dataset.reader = "tesseract";
     }
-    var existing = document.querySelector('script[data-reader="tesseract"]');
-    if (existing) {
-      existing.addEventListener("load", function () { callback(); });
-      existing.addEventListener("error", function () { callback(new Error("Unable to load OCR reader.")); });
-      return;
+    var done = false;
+    var timer = window.setTimeout(function () { finish(new Error("Image reader timed out.")); }, 30000);
+    function finish(error) {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      script.removeEventListener("load", loaded);
+      script.removeEventListener("error", failed);
+      if (error) script.remove();
+      callback(error);
     }
-    var script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
-    script.async = true;
-    script.dataset.reader = "tesseract";
-    script.onload = function () { callback(); };
-    script.onerror = function () { callback(new Error("Unable to load OCR reader.")); };
-    document.head.appendChild(script);
+    function loaded() { finish(window.Tesseract ? null : new Error("Image reader unavailable.")); }
+    function failed() { finish(new Error("Unable to load image reader.")); }
+    script.addEventListener("load", loaded);
+    script.addEventListener("error", failed);
+    if (created) document.head.appendChild(script);
   }
 
   function setScheduleImportStatus(title, detail) {
@@ -8181,7 +8202,7 @@
         activeTab = "sections";
         activeSectionId = section.id;
         saveCurrentDraft();
-        renderAll();
+        renderAll({ navigateToSection: true });
       });
       row.appendChild(button);
       els.nav.appendChild(row);
@@ -9039,6 +9060,7 @@
     proposal.feeStructures.forEach(function (structure, structureIndex) {
       var section = document.createElement("section");
       section.className = "panel-card fee-structure-editor";
+      section.addEventListener("paste", function (event) { handleFeeReferencePaste(event, structure, feeImageImportState(structure)); });
       var head = document.createElement("div");
       head.className = "panel-head";
       head.innerHTML = "<div><h4>Fee Structure " + (structureIndex + 1) + "</h4><p class=\"field-help\">The bold text appears above this chart; the supporting text appears below it.</p></div>";
@@ -9092,9 +9114,270 @@
     return wrap;
   }
 
+  var feeImageImportStates;
+
+  function feeImageImportState(structure) {
+    if (!feeImageImportStates) feeImageImportStates = new WeakMap();
+    if (!feeImageImportStates.has(structure)) feeImageImportStates.set(structure, { text: "", status: "", request: 0, busy: false });
+    return feeImageImportStates.get(structure);
+  }
+
+  function feeImportSnapshot(structure) {
+    return {
+      amounts: ProposalCompensationImport.phases.map(function (phase) { return structure[phase.key]; }),
+      phaseLabels: Object.assign({}, structure.phaseLabels),
+      includedPhases: Object.assign({}, structure.includedPhases)
+    };
+  }
+
+  function setFeeImageImportStatus(state, message) {
+    state.status = message;
+    if (state.statusElement && state.statusElement.isConnected) state.statusElement.textContent = message;
+  }
+
+  function applyFeeImageImport(structure, state, result) {
+    if (!result.rows.length) {
+      setFeeImageImportStatus(state, "No phase amounts could be matched. Try a clearer crop of the fee chart, or edit the recognized text.");
+      return false;
+    }
+    var before = feeImportSnapshot(structure);
+    if (result.totalMatches) {
+      ProposalCompensationImport.phases.forEach(function (phase) { structure.includedPhases[phase.key] = false; });
+    }
+    result.rows.forEach(function (row) {
+      structure[row.key] = sanitizeCurrencyInput(row.amount);
+      structure.phaseLabels[row.key] = row.label.slice(0, 70);
+      structure.includedPhases[row.key] = true;
+    });
+    state.undo = { before: before, after: JSON.stringify(feeImportSnapshot(structure)) };
+    state.status = result.rows.length + " phase" + (result.rows.length === 1 ? "" : "s") + " filled. " +
+      (result.totalMatches ? "Chart phases match the image total. " : "Other phases were left unchanged. ") +
+      result.warnings.join(" ") + " Review the amounts before exporting.";
+    clearGeneratedCopy();
+    markDirty();
+    saveCurrentDraft();
+    renderAll();
+    return true;
+  }
+
+  function feeReferenceClipboardFile(transfer) {
+    if (!transfer) return null;
+    var file = Array.from(transfer.files || []).find(function (entry) { return /^image\//.test(entry.type); });
+    if (file) return file;
+    var items = Array.from(transfer.items || []);
+    for (var index = 0; index < items.length; index += 1) {
+      if (items[index].kind !== "file" && !/^image\//.test(items[index].type)) continue;
+      file = items[index].getAsFile && items[index].getAsFile();
+      if (file && /^image\//.test(file.type)) return file;
+    }
+    return null;
+  }
+
+  function handleFeeReferencePaste(event, structure, state) {
+    if (event.defaultPrevented) return;
+    var file = feeReferenceClipboardFile(event.clipboardData);
+    if (file) {
+      event.preventDefault();
+      importFeeStructureImage(file, structure, state);
+    } else if (event.target.closest && event.target.closest(".fee-image-paste-target")) {
+      event.preventDefault();
+      setFeeImageImportStatus(state, "No image was pasted. Copy the image itself, then paste again, or use Choose image.");
+    }
+  }
+
+  async function pasteFeeStructureClipboard(structure, state) {
+    var owner = proposal, request = (state.clipboardRequest || 0) + 1;
+    state.clipboardRequest = request;
+    state.clipboardReading = true;
+    function current() { return proposal === owner && proposal.feeStructures.indexOf(structure) >= 0 && state.clipboardRequest === request; }
+    function showPasteBox(message) {
+      if (!current()) return;
+      state.showPasteTarget = true;
+      setFeeImageImportStatus(state, message);
+      if (state.pasteTarget && state.pasteTarget.isConnected) {
+        state.pasteTarget.hidden = false;
+        state.pasteTarget.focus();
+      }
+    }
+    try {
+      if (!navigator.clipboard || typeof navigator.clipboard.read !== "function") {
+        showPasteBox("Click the paste box below and press Ctrl+V, or use Choose image.");
+        return;
+      }
+      setFeeImageImportStatus(state, "Reading clipboard image…");
+      var items = await navigator.clipboard.read();
+      if (!current()) return;
+      for (var index = 0; index < items.length; index += 1) {
+        var type = items[index].types.find(function (entry) { return entry === "image/png"; }) ||
+          items[index].types.find(function (entry) { return /^image\/(?:jpeg|webp|gif|bmp)$/i.test(entry); });
+        if (!type) continue;
+        var image = await items[index].getType(type);
+        if (!current()) return;
+        await importFeeStructureImage(image, structure, state);
+        return;
+      }
+      showPasteBox("The clipboard does not contain an image. Copy the image itself, or use Choose image.");
+    } catch (error) {
+      showPasteBox("Your browser blocked clipboard access. Click the paste box below and press Ctrl+V, or use Choose image.");
+    } finally {
+      if (current()) state.clipboardReading = false;
+    }
+  }
+
+  async function importFeeStructureImage(file, structure, state) {
+    if (!file || !/^image\/(?:png|jpeg|webp|gif|bmp)$/i.test(file.type)) {
+      setFeeImageImportStatus(state, "Choose a PNG, JPG, WebP, GIF, or BMP image of the fee chart.");
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setFeeImageImportStatus(state, "Use an image smaller than 20 MB, cropped to the fee chart.");
+      return;
+    }
+    state.clipboardRequest = (state.clipboardRequest || 0) + 1;
+    state.clipboardReading = false;
+    var owner = proposal, request = ++state.request, snapshot = JSON.stringify(feeImportSnapshot(structure));
+    function current() { return proposal === owner && proposal.feeStructures.indexOf(structure) >= 0 && state.request === request; }
+    state.busy = true;
+    state.result = null;
+    state.undo = null;
+    state.text = "";
+    state.dataUrl = "";
+    state.status = "Reading reference image… The first use may take a moment.";
+    renderAll();
+    try {
+      var dataUrl = await new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function () { resolve(reader.result); };
+        reader.onerror = function () { reject(new Error("The image could not be opened. Choose another image.")); };
+        reader.readAsDataURL(file);
+      });
+      if (!current()) return;
+      state.dataUrl = dataUrl;
+      await new Promise(function (resolve, reject) { loadTesseract(function (error) { if (error) reject(error); else resolve(); }); });
+      if (!current()) return;
+      var result = await ProposalCompensationImport.recognize(window.Tesseract, dataUrl, structure.phaseLabels, function (message) {
+        if (!current() || !message || !message.status) return;
+        var percent = typeof message.progress === "number" ? " " + Math.round(message.progress * 100) + "%" : "";
+        setFeeImageImportStatus(state, message.status === "recognizing text" ? "Reading reference image…" + percent : "Loading image reader…");
+      }, function () { return !current(); });
+      if (!current()) return;
+      state.text = result.text;
+      state.result = result;
+      state.busy = false;
+      if (JSON.stringify(feeImportSnapshot(structure)) !== snapshot) {
+        state.status = "The fields changed while reading. Review the recognized values and use Apply recognized values to fill them.";
+        renderAll();
+      } else if (!applyFeeImageImport(structure, state, result)) renderAll();
+    } catch (error) {
+      if (!current()) return;
+      state.status = "Could not read this image. Try again with a clearer crop, or paste the phase names and amounts into Recognized text.";
+      state.showText = true;
+    } finally {
+      if (current()) { state.busy = false; renderAll(); }
+    }
+  }
+
+  function renderFeeStructureImageImport(structureIndex) {
+    var structure = proposal.feeStructures[structureIndex], state = feeImageImportState(structure);
+    var wrap = document.createElement("div");
+    wrap.className = "fee-image-import";
+    wrap.setAttribute("aria-label", "Reference image for fee structure " + (structureIndex + 1));
+    var drop = document.createElement("button");
+    drop.type = "button";
+    drop.className = "drop-zone fee-image-drop";
+    drop.setAttribute("aria-label", "Paste reference image for fee structure " + (structureIndex + 1));
+    drop.innerHTML = '<strong>Paste reference image</strong><span>Click to paste an image from your clipboard, or drag one here.</span>';
+    drop.addEventListener("click", function () { pasteFeeStructureClipboard(structure, state); });
+    wrap.addEventListener("paste", function (event) { handleFeeReferencePaste(event, structure, state); });
+    drop.addEventListener("dragover", function (event) { event.preventDefault(); drop.classList.add("drag-over"); });
+    drop.addEventListener("dragleave", function () { drop.classList.remove("drag-over"); });
+    drop.addEventListener("drop", function (event) {
+      event.preventDefault();
+      drop.classList.remove("drag-over");
+      var file = Array.from(event.dataTransfer && event.dataTransfer.files || []).find(function (item) { return /^image\//.test(item.type); });
+      if (file) importFeeStructureImage(file, structure, state);
+      else setFeeImageImportStatus(state, "Drop an image of the fee chart here.");
+    });
+    wrap.appendChild(drop);
+    var pasteTarget = document.createElement("div");
+    pasteTarget.className = "fee-image-paste-target";
+    pasteTarget.contentEditable = "true";
+    pasteTarget.setAttribute("role", "textbox");
+    pasteTarget.setAttribute("aria-label", "Paste image with Ctrl+V for fee structure " + (structureIndex + 1));
+    pasteTarget.setAttribute("data-placeholder", "Click here and press Ctrl+V to paste your image");
+    pasteTarget.setAttribute("aria-multiline", "false");
+    pasteTarget.spellcheck = false;
+    pasteTarget.hidden = !state.showPasteTarget;
+    pasteTarget.addEventListener("beforeinput", function (event) { event.preventDefault(); });
+    pasteTarget.addEventListener("input", function () { pasteTarget.textContent = ""; });
+    state.pasteTarget = pasteTarget;
+    wrap.appendChild(pasteTarget);
+    var actions = document.createElement("div");
+    actions.className = "fee-image-import-actions";
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/png,image/jpeg,image/webp,image/gif,image/bmp";
+    input.hidden = true;
+    input.setAttribute("aria-label", "Choose fee reference image " + (structureIndex + 1));
+    input.addEventListener("change", function () { var file = input.files && input.files[0]; if (file) importFeeStructureImage(file, structure, state); input.value = ""; });
+    actions.appendChild(input);
+    function action(label, handler) {
+      var button = document.createElement("button");
+      button.type = "button"; button.className = "secondary compact"; button.textContent = label;
+      button.addEventListener("click", handler); actions.appendChild(button);
+      return button;
+    }
+    action("Choose image", function () { input.click(); });
+    if (state.busy) action("Cancel reading", function () { state.request += 1; state.busy = false; state.status = "Image reading cancelled. Fields were left unchanged."; renderAll(); });
+    if (state.undo) action("Undo import", function () {
+      if (state.undo.after !== JSON.stringify(feeImportSnapshot(structure))) {
+        state.undo = null; state.status = "Fields were edited after the import, so those edits were kept."; renderAll(); return;
+      }
+      ProposalCompensationImport.phases.forEach(function (phase, index) { structure[phase.key] = state.undo.before.amounts[index]; });
+      structure.phaseLabels = state.undo.before.phaseLabels;
+      structure.includedPhases = state.undo.before.includedPhases;
+      state.undo = null; state.status = "Import undone. Previous phase names, amounts, and chart selections restored.";
+      clearGeneratedCopy(); markDirty(); saveCurrentDraft(); renderAll();
+    });
+    wrap.appendChild(actions);
+    var status = document.createElement("p");
+    status.className = "field-help fee-image-import-status";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+    status.textContent = state.status || "The image is read in your browser. Your reference is not added to the proposal.";
+    state.statusElement = status;
+    wrap.appendChild(status);
+    if (!state.busy) {
+      var details = document.createElement("details");
+      details.className = "fee-image-import-details";
+      details.open = !!state.showText;
+      details.addEventListener("toggle", function () { state.showText = details.open; });
+      var summary = document.createElement("summary"); summary.textContent = "Recognized text / paste text instead"; details.appendChild(summary);
+      if (state.dataUrl) {
+        var image = document.createElement("img"); image.src = state.dataUrl; image.alt = "Fee reference image"; details.appendChild(image);
+      }
+      var textarea = document.createElement("textarea");
+      textarea.id = "fee-image-import-text-" + structureIndex;
+      textarea.setAttribute("aria-label", "Recognized fee text for fee structure " + (structureIndex + 1));
+      textarea.placeholder = "Schematic Design $668,745\nDesign Development $802,494\nConstruction Documents $222,915\nConstruction Administration $312,080";
+      textarea.value = state.text;
+      textarea.addEventListener("input", function () { state.text = textarea.value; state.result = null; });
+      details.appendChild(textarea);
+      var apply = document.createElement("button"); apply.type = "button"; apply.className = "secondary compact"; apply.textContent = "Apply recognized values";
+      apply.addEventListener("click", function () { applyFeeImageImport(structure, state, state.result || ProposalCompensationImport.parseText(state.text, structure.phaseLabels)); });
+      details.appendChild(apply); wrap.appendChild(details);
+    }
+    return wrap;
+  }
+
   function renderFeeStructurePhaseNamesEditor(structureIndex) {
     var structure = proposal.feeStructures[structureIndex];
     var card = panelCard("Chart phase names", "These labels apply only to this fee structure's chart.");
+    var importHeader = document.createElement("div");
+    importHeader.className = "fee-phase-names-top";
+    importHeader.appendChild(card.querySelector(".panel-head"));
+    importHeader.appendChild(renderFeeStructureImageImport(structureIndex));
+    card.appendChild(importHeader);
     var grid = document.createElement("div");
     grid.className = "field-grid";
     phaseLabelDefinitions().filter(function (phase) {
@@ -11300,8 +11583,11 @@
     proposal.project.maAssumptionsAuto = true;
   }
 
-  function renderPreview() {
+  function renderPreview(options) {
     var theme = currentThemeId();
+    var context = JSON.stringify([proposal.meta.id, theme, activeTab, activeSectionId]);
+    var navigate = !previewRenderContext || context !== previewRenderContext || (options && options.navigateToSection);
+    var position = navigate ? null : capturePreviewPosition();
     els.preview.classList.toggle("theme-modern-landscape", theme === "modernLandscape");
     els.preview.classList.toggle("theme-northline-portrait", theme === "northlinePortrait");
     els.preview.classList.toggle("theme-structured-portrait", theme === "maOg" || theme === "studioPortrait");
@@ -11321,7 +11607,9 @@
       saveCurrentDraft();
       photoSelectionsChanged = false;
     }
-    syncPreviewToActiveSection();
+    previewRenderContext = context;
+    if (navigate) syncPreviewToActiveSection();
+    else restorePreviewPosition(position);
   }
 
   function optimizePreviewImageMarkup(html) {
@@ -11360,6 +11648,46 @@
         textNode.parentNode.replaceChild(fragment, textNode);
       }
     });
+  }
+
+  // Keep the visible sheet and its offset when edits repaginate earlier sections.
+  // Physical page numbers can change, so identify a sheet within its section.
+  function capturePreviewPosition() {
+    var preview = els.preview, bounds = preview.getBoundingClientRect();
+    var pages = Array.from(preview.querySelectorAll(".proposal-page"));
+    var page = pages.find(function (item) { return item.getBoundingClientRect().bottom > bounds.top; });
+    var position = { top: preview.scrollTop, left: preview.scrollLeft };
+    if (page) {
+      position.section = page.getAttribute("data-section-id");
+      position.title = page.getAttribute("data-section");
+      position.frame = page.dataset.textFrameKey;
+      position.index = pages.filter(function (item) {
+        return item.getAttribute("data-section-id") === position.section && item.getAttribute("data-section") === position.title;
+      }).indexOf(page);
+      position.offset = page.getBoundingClientRect().top - bounds.top;
+    }
+    return position;
+  }
+
+  function restorePreviewPosition(position) {
+    if (!position) return;
+    var preview = els.preview;
+    var pages = Array.from(preview.querySelectorAll(".proposal-page"));
+    var page = position.frame && pages.find(function (item) { return item.dataset.textFrameKey === position.frame; });
+    if (!page && position.index !== undefined) {
+      var matches = pages.filter(function (item) {
+        return item.getAttribute("data-section-id") === position.section && item.getAttribute("data-section") === position.title;
+      });
+      page = matches[Math.min(position.index, matches.length - 1)];
+    }
+    preview.scrollLeft = position.left;
+    if (page) {
+      var bounds = preview.getBoundingClientRect();
+      var scale = bounds.height / preview.offsetHeight || 1;
+      preview.scrollTop += (page.getBoundingClientRect().top - bounds.top - position.offset) / scale;
+    } else {
+      preview.scrollTop = position.top;
+    }
   }
 
   function syncPreviewToActiveSection() {

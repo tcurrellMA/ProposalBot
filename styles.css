@@ -1173,6 +1173,7 @@ input[type="file"] {
 
 .proposal-document {
   overflow: auto;
+  overflow-anchor: none;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   padding: 14px 0 24px;
@@ -4901,3 +4902,24 @@ figure:hover > .photo-frame-resize-handle::after,
 .fee-ledger-empty { margin: 0.08in 0 0.18in; font-size: 11px; color: #606060; }
 .structured-page-studio .fee-ledger .fee-ledger-amount { font-size: 14px; }
 .structured-page-studio .fee-ledger .fee-ledger-total .fee-ledger-amount { padding-left: 10px; font-size: 18px; }
+
+/* Reference-image reader for each compensation fee structure. */
+.fee-phase-names-top { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 20px; align-items: start; margin-bottom: 16px; }
+.fee-phase-names-top > .panel-head { margin: 0; min-width: 0; }
+.fee-image-import { min-width: 0; }
+.fee-image-drop { width: 100%; min-height: 88px; padding: 14px; text-align: left; color: var(--brand); background: #f4f7f3; border: 1px dashed #8caaa1; border-radius: var(--radius); box-shadow: none; cursor: pointer; }
+.fee-image-drop strong { display: block; font-size: 14px; }
+.fee-image-drop span { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.45; }
+.fee-image-drop:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+.fee-image-drop.drag-over { background: #e2eee6; border-color: var(--brand); }
+.fee-image-import-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.fee-image-import-status { margin: 8px 0; line-height: 1.45; }
+.fee-image-import-details summary { cursor: pointer; color: var(--brand); font-size: 12px; }
+.fee-image-import-details textarea { width: 100%; min-height: 140px; margin: 8px 0; font-size: 12px; }
+.fee-image-import-details img { display: block; width: 100%; max-height: 180px; object-fit: contain; margin-top: 8px; background: white; }
+@media (max-width: 1100px) { .fee-phase-names-top { grid-template-columns: minmax(0, 1fr); gap: 12px; } }
+
+.fee-image-paste-target { min-height: 60px; margin-top: 8px; padding: 12px; border: 1px dashed #8caaa1; border-radius: var(--radius); background: white; color: var(--brand); font-size: 12px; cursor: text; }
+.fee-image-paste-target[hidden] { display: none; }
+.fee-image-paste-target:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+.fee-image-paste-target:focus { outline: 2px solid var(--brand); outline-offset: 2px; }
