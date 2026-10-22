@@ -2007,27 +2007,17 @@
       photoType = "design";
       photo = choosePagePhotos(photoType, "northline-toc", ["main"])[0];
     }
-    var seen = {};
-    var entries = pageModels.map(function (page) {
-      return { title: pageDisplayTitle(page) };
-    }).filter(function (entry) {
-      var key = normalizeTypology(entry.title);
-      if (seen[key]) {
-        return false;
-      }
-      seen[key] = true;
-      return true;
-    });
+    var entries = proposalContentsEntries(pageModels);
     return '<article class="proposal-page northline-page northline-toc-page" data-section="Contents">' +
       '<div class="northline-inner">' +
       renderNorthlinePhoto(photo, photoType, "northline-toc-photo", photoSlotKey("northline-toc", "main", photoType)) +
       '<section class="northline-toc-overlay">' +
       '<h2>Contents</h2>' +
-      '<div class="northline-toc-list">' + entries.map(function (entry, index) {
-        return '<div class="northline-toc-row"><span>' + escapeHtml(twoDigit(index + 1)) + '</span><strong>' + escapeHtml(entry.title) + '</strong></div>';
+      '<div class="northline-toc-list">' + entries.map(function (entry) {
+        return '<div class="northline-toc-row"><span>' + escapeHtml(twoDigit(entry.number)) + '</span><strong>' + escapeHtml(entry.title) + '</strong></div>';
       }).join("") + '</div>' +
       '</section>' +
-      '<footer class="northline-toc-footer">Munoz + Albin / 01</footer>' +
+      '<footer class="northline-toc-footer">Munoz + Albin</footer>' +
       '</div>' +
       '</article>';
   }
@@ -6979,6 +6969,10 @@
     return ".northline-landscape-photo,.structured-landscape-photo,.studio-landscape-photo{height:var(--photo-frame-height,3.12in)!important;}\n.northline-landscape-flow-column{bottom:calc(var(--photo-frame-height,3.12in) + .3in);}\n.northline-landscape-content{bottom:calc(var(--photo-frame-height,3.12in) + .3in);}\n.structured-page-landscape-photo .structured-landscape-text-column{bottom:calc(var(--photo-frame-height,3.12in) + .36in);}\n.studio-landscape-copy-column{height:auto;bottom:calc(var(--photo-frame-height,3.12in) + .36in);}\n.structured-page-landscape-photo .proposal-footer,.studio-landscape-page .studio-page-footer,.studio-schedule-page .studio-page-footer,.studio-fee-page .studio-page-footer{bottom:calc(var(--photo-frame-height,3.12in) + .22in)!important;}\n.structured-page-landscape-photo .structured-landscape-text-column{left:.54in;right:.54in;width:auto;display:flex;flex-direction:column;overflow:hidden;}\n.structured-page-landscape-photo .structured-page-header{flex:0 0 auto;}\n.structured-page-landscape-photo .structured-landscape-copy{flex:1 1 auto;min-height:0;}\n";
   }
 
+  function feeLedgerStyles() {
+    return ".fee-ledger {\n  width: 100%;\n  table-layout: fixed;\n  border-collapse: collapse;\n  border: 0;\n  background: transparent;\n  margin: 0.12in 0 0.18in;\n  color: #242323;\n  font-family: \"Source Sans 3\", Calibri, Arial, sans-serif;\n  font-variant-numeric: tabular-nums;\n  break-inside: avoid;\n  page-break-inside: avoid;\n}\n.fee-ledger .fee-ledger-number-column { width: 8%; }\n.fee-ledger .fee-ledger-label-column { width: 52%; }\n.fee-ledger .fee-ledger-amount-column { width: 26%; }\n.fee-ledger th,\n.fee-ledger td {\n  border: 0;\n  padding: 12px 0;\n  vertical-align: middle;\n  line-height: 1.3;\n  text-align: left;\n  text-align-last: left;\n  font-weight: 400;\n}\n.fee-ledger .fee-ledger-number {\n  padding-right: 8px;\n  color: #454545;\n  font-size: 8px;\n  letter-spacing: 0.1em;\n}\n.fee-ledger .fee-ledger-label {\n  padding-left: 12px;\n  padding-right: 8px;\n  border-left: 1px solid #d8d8d5;\n  font-size: 8px;\n  letter-spacing: 0.18em;\n  text-transform: uppercase;\n  overflow-wrap: anywhere;\n}\n.fee-ledger .fee-ledger-amount {\n  text-align: right;\n  text-align-last: right;\n  white-space: nowrap;\n  font-size: 16px;\n}\n.fee-ledger .fee-ledger-row + .fee-ledger-row .fee-ledger-label,\n.fee-ledger .fee-ledger-row + .fee-ledger-row .fee-ledger-amount {\n  border-top: 1px solid #d8d8d5;\n}\n.fee-ledger .fee-ledger-spacer td { height: 22px; padding: 0; }\n.fee-ledger .fee-ledger-total th,\n.fee-ledger .fee-ledger-total td { border-top: 2px solid #d2d2cf; padding-top: 22px; padding-bottom: 22px; }\n.fee-ledger .fee-ledger-total th { font-size: 12px; letter-spacing: 0.28em; text-transform: uppercase; }\n.fee-ledger .fee-ledger-total .fee-ledger-amount { padding-left: 16px; border-left: 1px solid #d8d8d5; font-size: 20px; }\n.fee-ledger-empty { margin: 0.08in 0 0.18in; font-size: 11px; color: #606060; }\n.structured-page-studio .fee-ledger .fee-ledger-amount { font-size: 14px; }\n.structured-page-studio .fee-ledger .fee-ledger-total .fee-ledger-amount { padding-left: 10px; font-size: 18px; }\n";
+  }
+
   function wordExportStyles() {
     return [
       '@font-face{font-family:"Source Sans 3";src:url("' + new URL("assets/fonts/SourceSans3-Regular.otf", window.location.href).href + '") format("opentype");font-weight:400;}',
@@ -7010,11 +7004,6 @@
       '.modern-page[data-section="Compensation"] .doc-copy>p{margin-bottom:.06in;}',
       '.modern-page[data-section="Compensation"] .fee-table{font-size:8.8px;margin-bottom:.07in;}',
       '.modern-page[data-section="Compensation"] .fee-table td,.modern-page[data-section="Compensation"] .fee-table th{padding:3px 4px;}',
-      '.modern-page[data-section="Compensation"] .fee-chart{padding:8px;margin:.025in 0 .07in;}',
-      '.modern-page[data-section="Compensation"] .fee-chart-row{margin-bottom:.04in;}',
-      '.modern-page[data-section="Compensation"] .fee-chart-meta span,.modern-page[data-section="Compensation"] .fee-chart-meta strong,.modern-page[data-section="Compensation"] .fee-chart-total span,.modern-page[data-section="Compensation"] .fee-chart-total strong{font-size:8.8px;}',
-      '.modern-page[data-section="Compensation"] .fee-chart-bar{height:4px;margin-top:2px;}',
-      '.modern-page[data-section="Compensation"] .fee-chart-total{padding-top:5px;}',
       '.modern-page[data-section="Compensation"] .compensation-fee-notes{margin-top:.06in;font-size:8.8px;line-height:1.18;}',
       '.modern-page[data-section="Compensation"] .doc-copy .compensation-fee-notes ol{columns:2;column-gap:.3in;margin-bottom:.045in;}',
       '.modern-page[data-section="Compensation"] .doc-copy .compensation-fee-notes li{margin-bottom:.024in;}',
@@ -7117,11 +7106,6 @@
       '.structured-page[data-section="Compensation"] .doc-copy>p{margin-bottom:.07in;}',
       '.structured-page[data-section="Compensation"] .fee-table{font-size:9px;margin-bottom:.08in;}',
       '.structured-page[data-section="Compensation"] .fee-table td,.structured-page[data-section="Compensation"] .fee-table th{padding:3px 4px;}',
-      '.structured-page[data-section="Compensation"] .fee-chart{padding:8px;margin:.03in 0 .08in;}',
-      '.structured-page[data-section="Compensation"] .fee-chart-row{margin-bottom:.055in;}',
-      '.structured-page[data-section="Compensation"] .fee-chart-meta span,.structured-page[data-section="Compensation"] .fee-chart-meta strong,.structured-page[data-section="Compensation"] .fee-chart-total span,.structured-page[data-section="Compensation"] .fee-chart-total strong{font-size:9px;}',
-      '.structured-page[data-section="Compensation"] .fee-chart-bar{height:5px;margin-top:3px;}',
-      '.structured-page[data-section="Compensation"] .fee-chart-total{padding-top:6px;}',
       '.structured-page[data-section="Compensation"] .compensation-fee-notes{margin-top:.07in;font-size:9px;line-height:1.2;}',
       '.structured-page[data-section="Compensation"] .doc-copy .compensation-fee-notes-title{margin-bottom:.04in;font-size:9.6px;}',
       '.structured-page[data-section="Compensation"] .doc-copy .compensation-fee-notes ol{margin:0 0 .055in .19in;padding-left:.09in;}',
@@ -7137,11 +7121,6 @@
       '.northline-page[data-section="Compensation"] .doc-copy>p{margin-bottom:.065in;}',
       '.northline-page[data-section="Compensation"] .fee-table{font-size:8.6px;margin:0 0 .07in;}',
       '.northline-page[data-section="Compensation"] .fee-table td,.northline-page[data-section="Compensation"] .fee-table th{padding:3px;}',
-      '.northline-page[data-section="Compensation"] .fee-chart{padding:8px;margin:.03in 0 .08in;}',
-      '.northline-page[data-section="Compensation"] .fee-chart-row{margin-bottom:.055in;}',
-      '.northline-page[data-section="Compensation"] .fee-chart-meta span,.northline-page[data-section="Compensation"] .fee-chart-meta strong,.northline-page[data-section="Compensation"] .fee-chart-total span,.northline-page[data-section="Compensation"] .fee-chart-total strong{font-size:9px;}',
-      '.northline-page[data-section="Compensation"] .fee-chart-bar{height:5px;margin-top:3px;}',
-      '.northline-page[data-section="Compensation"] .fee-chart-total{padding-top:6px;}',
       '.northline-page[data-section="Compensation"] .compensation-fee-notes{margin-top:.07in;font-size:8.5px;line-height:1.19;}',
       '.northline-page[data-section="Compensation"] .doc-copy .compensation-fee-notes-title{margin-bottom:.04in;font-size:9.2px;}',
       '.northline-page[data-section="Compensation"] .doc-copy .compensation-fee-notes ol{margin:0 0 .055in .18in;padding-left:.08in;}',
@@ -7279,7 +7258,9 @@
       '.attachment-theme-modern .attachment-page-footer{left:.44in;right:.44in;bottom:.26in;}',
       '.attachment-placeholder{border:1px solid #d9d5ce;background:#fbfaf8;color:#6f6a61;padding:14px;}',
       '.attachment-placeholder-subtitle{display:block;margin-top:4px;font-weight:400;}',
-      photoSizingLayoutCss()
+      photoSizingLayoutCss(),
+      feeLedgerStyles(),
+      proposalPageNumberStyles()
     ].join("");
   }
 
@@ -11413,13 +11394,60 @@
   }
 
   function renderProposalPages() {
+    var html;
     if (currentThemeId() === "modernLandscape") {
-      return filterProjectTypeHtml(renderModernLandscapePages());
+      html = renderModernLandscapePages();
+    } else if (currentThemeId() === "northlinePortrait") {
+      html = renderNorthlinePortraitPages();
+    } else {
+      html = renderStructuredPortraitPages(currentThemeId() === "studioPortrait").join("");
     }
-    if (currentThemeId() === "northlinePortrait") {
-      return filterProjectTypeHtml(renderNorthlinePortraitPages());
-    }
-    return filterProjectTypeHtml(renderStructuredPortraitPages(currentThemeId() === "studioPortrait").join(""));
+    return numberProposalPages(filterProjectTypeHtml(html));
+  }
+
+  function proposalContentsEntries(pageModels) {
+    var seen = new Set();
+    var sections = new Map();
+    var entries = [];
+    pageModels.forEach(function (page) {
+      var key = (page.sectionIds || []).join(" ") || page.header;
+      if (!sections.has(key)) sections.set(key, sections.size + 1);
+      var title = pageDisplayTitle(page);
+      var entryKey = key + "\n" + title;
+      if (seen.has(entryKey)) return;
+      seen.add(entryKey);
+      entries.push({ title: title, number: sections.get(key) });
+    });
+    return entries;
+  }
+
+  function numberProposalPages(html) {
+    var host = document.createElement("div");
+    host.innerHTML = html;
+    var sections = new Map();
+    host.querySelectorAll(".proposal-page").forEach(function (page, index) {
+      var sectionId = page.getAttribute("data-section-id");
+      if (sectionId) {
+        if (!sections.has(sectionId)) sections.set(sectionId, sections.size + 1);
+        var sectionNumber = sections.get(sectionId);
+        page.dataset.sectionNumber = sectionNumber;
+        page.querySelectorAll(".northline-number,.body-page-number,.modern-page-number,.studio-page-number,.attachment-page-number").forEach(function (marker) {
+          marker.textContent = marker.classList.contains("body-page-number") ? sectionNumber : twoDigit(sectionNumber);
+          marker.setAttribute("aria-label", "Section " + sectionNumber);
+        });
+      }
+      page.dataset.pageNumber = index + 1;
+      var badge = document.createElement("span");
+      badge.className = "proposal-page-folio";
+      badge.textContent = index + 1;
+      badge.setAttribute("aria-label", "Page " + (index + 1));
+      page.appendChild(badge);
+    });
+    return host.innerHTML;
+  }
+
+  function proposalPageNumberStyles() {
+    return '.proposal-page-folio{position:absolute;right:.16in;bottom:.14in;z-index:20;display:block;min-width:.32in;padding:4px 6px;box-sizing:border-box;background:#f8f5ef;color:#242323;border:1px solid #c9c3b8;border-radius:2px;font-family:Arial,sans-serif;font-size:12px;font-weight:700;line-height:1;text-align:center;white-space:nowrap;pointer-events:none;-webkit-print-color-adjust:exact;print-color-adjust:exact;}.modern-footer{right:.76in;}';
   }
 
   function renderSelectedCoverPage(generatedCover) {
@@ -11838,17 +11866,7 @@
       photoType = "design";
       photo = choosePagePhotos(photoType, "structured-toc", ["main"])[0];
     }
-    var seen = {};
-    var entries = pageModels.map(function (page) {
-      return { title: pageDisplayTitle(page) };
-    }).filter(function (entry) {
-      var key = normalizeTypology(entry.title);
-      if (seen[key]) {
-        return false;
-      }
-      seen[key] = true;
-      return true;
-    });
+    var entries = proposalContentsEntries(pageModels);
     var photoHtml = photo
       ? '<figure class="studio-toc-photo editable-photo-slot">' + renderEditablePhotoImage(photo, photoType, photoSlotKey("structured-toc", "main", photoType)) + '</figure>'
       : '<figure class="studio-toc-photo photo-placeholder"><span>contents<br>photo</span></figure>';
@@ -11857,11 +11875,11 @@
       photoHtml +
       '<section class="studio-toc-overlay">' +
       '<h2>Contents</h2>' +
-      '<div class="studio-toc-list">' + entries.map(function (entry, index) {
-        return '<div class="studio-toc-row"><span>' + escapeHtml(twoDigit(index + 1)) + '</span><strong>' + escapeHtml(entry.title) + '</strong></div>';
+      '<div class="studio-toc-list">' + entries.map(function (entry) {
+        return '<div class="studio-toc-row"><span>' + escapeHtml(twoDigit(entry.number)) + '</span><strong>' + escapeHtml(entry.title) + '</strong></div>';
       }).join("") + '</div>' +
       '</section>' +
-      '<footer class="proposal-footer studio-page-footer studio-page-footer-light"><div>Munoz + Albin</div><div>01</div></footer>' +
+      '<footer class="proposal-footer studio-page-footer studio-page-footer-light"><div>Munoz + Albin</div></footer>' +
       '</div>' +
       '</article>';
   }
@@ -13073,13 +13091,12 @@
       return row.included && row.value > 0;
     });
     if (!rows.length) {
-      return '<div class="fee-chart fee-chart-empty"><div class="fee-chart-total"><span>No chart items selected</span><strong>Select at least one phase</strong></div></div>';
+      return '<p class="fee-ledger-empty">No chart items selected. Select at least one phase.</p>';
     }
     var total = rows.reduce(function (sum, row) { return sum + row.value; }, 0);
-    return '<div class="fee-chart">' + rows.map(function (row) {
-      var width = total ? Math.max(6, Math.round(row.value / total * 100)) : 0;
-      return '<div class="fee-chart-row"><div class="fee-chart-meta"><span>' + escapeHtml(row.label) + '</span><strong>$' + escapeHtml(formatMoneyDisplay(row.value)) + '</strong></div><div class="fee-chart-bar"><span style="width:' + width + '%"></span></div></div>';
-    }).join("") + '<div class="fee-chart-total"><span>Total</span><strong>$' + escapeHtml(formatMoneyDisplay(total)) + '</strong></div></div>';
+    return '<table class="fee-ledger" aria-label="Compensation by phase"><colgroup><col class="fee-ledger-number-column"><col class="fee-ledger-label-column"><col><col class="fee-ledger-amount-column"></colgroup><tbody>' + rows.map(function (row, index) {
+      return '<tr class="fee-ledger-row"><td class="fee-ledger-number">' + String(index + 1).padStart(2, "0") + '</td><th scope="row" colspan="2" class="fee-ledger-label">' + escapeHtml(row.label) + '</th><td class="fee-ledger-amount">$' + escapeHtml(formatMoneyDisplay(row.value)) + '</td></tr>';
+    }).join("") + '<tr class="fee-ledger-spacer" aria-hidden="true"><td colspan="4"></td></tr></tbody><tfoot><tr class="fee-ledger-total"><th scope="row" colspan="2">Total</th><td colspan="2" class="fee-ledger-amount">$' + escapeHtml(formatMoneyDisplay(total)) + '</td></tr></tfoot></table>';
   }
 
   function isClosingPageHeader(header) {
