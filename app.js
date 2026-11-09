@@ -11322,6 +11322,7 @@
 
     var textarea = document.createElement("textarea");
     textarea.value = proposal.project.maAssumptions || "";
+    textarea.setAttribute("aria-label", "M+A assumptions");
     textarea.placeholder = "One item per line";
     textarea.addEventListener("input", function () {
       proposal.project.maAssumptions = textarea.value;
@@ -11853,7 +11854,7 @@
     return ProposalTextFlow.prepare(pages, {
       theme: currentThemeId(),
       settings: proposal.textFrameBottoms || {},
-      measureSections: ["schematicDesignPage", "designDevelopmentPage", "constructionDocumentsPage"],
+      measureSections: ["process", "schematicDesignPage", "designDevelopmentPage", "constructionDocumentsPage"],
       render: function (page, pageNumber) {
         return currentThemeId() === "northlinePortrait"
           ? renderNorthlineModelPage(page, pageNumber)
@@ -12002,7 +12003,7 @@
     // The landscape Process / Scope layout has a wide text column above its photo.
     // Its prior limit left short paragraph continuations stranded on a new page.
     var capacity = landscapePhoto && currentThemeId() === "northlinePortrait" ? 3180 : 2780;
-    return splitContinuousSectionText(processPageTextForPaging(), capacity).map(function (chunk, index) {
+    var pages = splitPagingBlocksByCapacity(textBlocksForPaging(processPageTextForPaging()), capacity, capacity, { keepBulletItems: true }).map(function (chunk, index) {
       return {
         key: "process-" + (index + 1),
         header: "Process / Scope",
@@ -12014,6 +12015,11 @@
         }
       };
     });
+    if (currentThemeId() === "studioPortrait" && !landscapePhoto) {
+      // Keep the visual introduction separate from the editable scope text.
+      pages.unshift({ key: "process-hero", header: "Process / Scope", photoType: "design", sectionIds: ["process"], content: function () { return ""; } });
+    }
+    return pages;
   }
 
   function phaseTextChunks(phaseId, title) {
@@ -12039,7 +12045,7 @@
     return splitPagingBlocksByCapacity(blocks, maxCharacters, continuationMaxCharacters || maxCharacters);
   }
 
-  function splitPagingBlocksByCapacity(blocks, firstPageMaxCharacters, continuationMaxCharacters) {
+  function splitPagingBlocksByCapacity(blocks, firstPageMaxCharacters, continuationMaxCharacters, options) {
     var pages = [];
     var current = [];
     var currentLength = 0;
@@ -12049,7 +12055,7 @@
       continuationMaxCharacters || firstPageMaxCharacters || 1
     ));
     var sourceBlocks = (blocks || []).reduce(function (expanded, block) {
-      return expanded.concat(splitOversizedPagingBlock(block, safeBlockLimit));
+      return expanded.concat(options && options.keepBulletItems && isBulletLine(block) ? [block] : splitOversizedPagingBlock(block, safeBlockLimit));
     }, []);
     for (var index = 0; index < sourceBlocks.length; index += 1) {
       var block = sourceBlocks[index];
@@ -12059,7 +12065,7 @@
       var reservedLength = blockLength + (keepWithNext ? estimatePagingBlockLength(nextBlock) : 0);
       if (current.length && currentLength + reservedLength > currentLimit) {
         var remainingCapacity = currentLimit - currentLength;
-        var fittedBlocks = !keepWithNext && remainingCapacity > 160
+        var fittedBlocks = !keepWithNext && !(options && options.keepBulletItems && isBulletLine(block)) && remainingCapacity > 160
           ? splitOversizedPagingBlock(block, remainingCapacity)
           : [block];
         if (fittedBlocks.length > 1) {
@@ -12413,7 +12419,7 @@
   }
 
   function renderStudioProcessPage(page, pageNumber, photoType, pageKey, photo) {
-    if (page.key === "process-1") {
+    if (page.key === "process-hero") {
       var steps = studioProcessSteps();
       return '<article class="proposal-page structured-page structured-page-studio studio-process-hero-page" data-section="' + escapeHtml(page.header) + '"' + pageSectionIdsAttribute(page) + '>' +
         '<div class="page-inner structured-page-inner studio-page-inner">' +
@@ -12662,7 +12668,7 @@
 
   function processPageTextForPaging() {
     var processParts = processSectionTextParts(renderPageSectionText("process"));
-    var assumptions = conciseListItems(projectContext().maAssumptions.length ? projectContext().maAssumptions : inferredAssumptions());
+    var assumptions = projectContext().maAssumptions.length ? projectContext().maAssumptions : inferredAssumptions();
     var assumptionBlock = proposal.project.showMaAssumptionsInProcess !== false && assumptions.length
       ? [
         "For this proposal, M+A has made the following assumptions:",
@@ -13165,12 +13171,6 @@
     return cleanLines(String(text || "").split(/\r?\n\r?\n|\n\s*\n/)).map(function (paragraph) {
       return paragraph.replace(/\s+/g, " ").trim();
     });
-  }
-
-  function conciseListItems(items) {
-    return uniqueCleanLines((items || []).map(function (item) {
-      return String(item || "").replace(/\s+/g, " ").trim();
-    })).slice(0, 8);
   }
 
   function defaultOwnerProvidedItems() {

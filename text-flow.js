@@ -24,7 +24,7 @@
 
   function supported(page, theme) {
     return theme !== "modernLandscape" && page.sectionIds && page.sectionIds.length === 1 &&
-      SECTIONS.indexOf(page.sectionIds[0]) >= 0 && !(theme === "studioPortrait" && page.sectionIds[0] === "process");
+      SECTIONS.indexOf(page.sectionIds[0]) >= 0 && page.key !== "process-hero";
   }
 
   function setHeight(copy, height) {
