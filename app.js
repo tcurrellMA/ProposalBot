@@ -3160,7 +3160,7 @@
   }
 
   function textToHtmlContinuous(value, options) {
-    value = filterMultifamilyText(value);
+    if (!(options && options.preserveProjectTypeCopy)) value = filterMultifamilyText(value);
     if (options && options.joinMidSentenceParagraphs) {
       value = joinMidSentenceParagraphBreaks(value);
     }
@@ -8478,7 +8478,7 @@
     var host = document.createElement("div");
     host.innerHTML = html;
     host.querySelectorAll(".doc-copy p,.doc-copy li,.doc-copy h3").forEach(function (node) {
-      if (isMultifamilyContent(node.textContent)) node.remove();
+      if (!(hasCustomProjectSummaryNarrative() && node.closest('[data-section-id~="projectSummary"]')) && isMultifamilyContent(node.textContent)) node.remove();
     });
     host.querySelectorAll(".doc-copy ul,.doc-copy ol").forEach(function (list) {
       if (!list.children.length) list.remove();
@@ -12560,6 +12560,11 @@
       '</div>';
   }
 
+  function hasCustomProjectSummaryNarrative() {
+    return Object.prototype.hasOwnProperty.call(proposal.sectionOverrides, "projectSummary") &&
+      Boolean(String(proposal.sectionOverrides.projectSummary || "").trim());
+  }
+
   function projectSummaryBlocksForPaging() {
     var c = projectContext();
     var summarySection = sectionDefinitions.find(function (item) { return item.id === "projectSummary"; });
@@ -12567,7 +12572,8 @@
       ? proposal.sectionOverrides.projectSummary
       : "";
     var introText = normalizeProjectSummaryNarrativeText(customSummaryText).trim() || defaultProjectSummaryNarrative();
-    var blocks = mergeProjectSummarySentenceContinuations(textBlocksForPaging(filterMultifamilyText(introText)));
+    // Summary prose may mention nearby housing even for an office project.
+    var blocks = mergeProjectSummarySentenceContinuations(textBlocksForPaging(hasCustomProjectSummaryNarrative() ? introText : filterMultifamilyText(introText)));
     if (proposal.project.showOwnerRequirements !== false) {
       blocks.push("Basic owner requirements:");
       blocks = blocks.concat(textBlocksForPaging(bulletText((c.ownerRequirements.length ? c.ownerRequirements : inferredOwnerRequirements()).join("\n"))));
@@ -12615,7 +12621,8 @@
     if (!includeFixedHeading || !blocks.length) {
       return textToHtmlContinuous(keepProjectSummaryNamesTogether(normalizedText), {
         joinMidSentenceParagraphs: true,
-        joinSoftLineBreaks: true
+        joinSoftLineBreaks: true,
+        preserveProjectTypeCopy: hasCustomProjectSummaryNarrative()
       });
     }
     var introBlockCount = 1;
@@ -12627,7 +12634,8 @@
     var remaining = blocks.slice(introBlockCount).join("\n\n");
     var narrativeRenderOptions = {
       joinMidSentenceParagraphs: true,
-      joinSoftLineBreaks: true
+      joinSoftLineBreaks: true,
+      preserveProjectTypeCopy: hasCustomProjectSummaryNarrative()
     };
     return textToHtmlContinuous(keepProjectSummaryNamesTogether(intro), narrativeRenderOptions) +
       '<p class="project-summary-fixed-title"><strong>' + escapeHtml(PROJECT_SUMMARY_FIXED_HEADING) + '</strong></p>' +

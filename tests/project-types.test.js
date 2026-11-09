@@ -93,6 +93,49 @@ test('project types control multifamily copy and photo filters without erasing s
       api.set(legacy);api.info();
       check(api.get().project.projectType==='seniorLiving','Old drafts infer senior living before residential');
       check(api.get().project.photoTypologies==='senior living','Old all-photo defaults migrate to related category');
+
+      // An office summary can describe nearby housing without becoming unit scope.
+      var summaryIntro='Thank you for the opportunity to submit this office proposal.';
+      var summaryParagraph='The project consists of the planning and design of an approximately 275,000 SF Class A office tower located on the northwest lot of Block A within the Regent Square development in Houston, Texas. The site fronts Allen Parkway and benefits from views toward Buffalo Bayou, strong connectivity to Autry Park, and an established mix of retail and multifamily uses already completed throughout Regent Square.';
+      var summarySecond='Block A is comprised of four separate lots.';
+      var summaryThird='The design approach will focus on creating a distinctive Class A workplace.';
+      var summary=api.defaults();
+      summary.project.projectType='office';
+      summary.project.showOwnerRequirements=false;
+      summary.project.showOwnerProvidedInfo=false;
+      summary.project.showSummaryDeliverables=false;
+      summary.projectSummarySections={intro:summaryIntro,summary:[summaryParagraph,summarySecond,summaryThird].join('\n\n')};
+      summary.sectionOverrides.projectSummary=[summaryIntro,summaryParagraph,summarySecond,summaryThird].join('\n\n');
+      Object.keys(summary.sectionInclusion).forEach(function(id){summary.sectionInclusion[id]=id==='projectSummary';});
+      function verifySummary(html,label){
+        var host=document.createElement('div');host.innerHTML=html;
+        var text=Array.from(host.querySelectorAll('.doc-copy')).map(function(e){return e.textContent;}).join(' ').replace(/\s+/g,' ');
+        var previous=-1;
+        [summaryIntro,'Project Summary',summaryParagraph,summarySecond,summaryThird].forEach(function(paragraph){
+          var index=text.indexOf(paragraph);
+          check(index>previous,'Summary paragraph retained in order in '+label+': '+paragraph);
+          check(text.indexOf(paragraph,index+paragraph.length)<0,'Summary paragraph occurs once in '+label);
+          previous=index;
+        });
+      }
+      for(var theme of ['maOg','northlinePortrait','studioPortrait','modernLandscape']){
+        for(var wide of [false,true]){
+          summary.themeId=summary.meta.themeId=theme;
+          summary.sectionLandscapeLayouts={projectSummary:wide};
+          summary.textFrameBottoms={};
+          api.set(JSON.parse(JSON.stringify(summary)));
+          verifySummary(document.getElementById('proposal-preview').innerHTML,'preview '+theme+' '+wide);
+          verifySummary(api.pages(),'export '+theme+' '+wide);
+          if(theme!=='modernLandscape'){
+            var page=document.querySelector('#proposal-preview [data-text-frame-key]');
+            var handle=page.querySelector('.text-frame-resize-handle');handle._positionTextFrame();
+            handle.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',shiftKey:true,bubbles:true,cancelable:true}));
+            verifySummary(api.pages(),'resized export '+theme+' '+wide);
+            var savedSummary=JSON.parse(JSON.stringify(api.get()));api.set(savedSummary);
+            verifySummary(document.getElementById('proposal-preview').innerHTML,'reopened preview '+theme+' '+wide);
+          }
+        }
+      }
       var pre=document.createElement('pre');pre.id='project-type-result';pre.textContent='passed';document.body.appendChild(pre);
     }
     function start(){if(!window.projectTypeTest||!document.querySelector('#proposal-preview .proposal-page')){setTimeout(start,30);return;}run().catch(function(e){document.body.setAttribute('data-project-type-error',e.stack||e.message);});}start();
