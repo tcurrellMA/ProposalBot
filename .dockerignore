@@ -15,3 +15,5 @@ server.err.log
 server.out.log
 Full Service Example.pdf
 *.bat
+
+node_modules

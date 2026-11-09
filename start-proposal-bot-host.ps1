@@ -52,6 +52,12 @@ try {
   throw "The service account cannot write to the shared data folder: $data"
 }
 
+# Install the pinned image decoder when this checkout has no local dependencies.
+if (-not (Test-Path -LiteralPath (Join-Path $SharedRoot 'node_modules/sharp/package.json'))) {
+  & npm.cmd ci --omit=dev --ignore-scripts --prefix $SharedRoot
+  if ($LASTEXITCODE -ne 0) { throw 'Could not install Proposal Bot dependencies.' }
+}
+
 $env:HOST = $ListenHost
 $env:PORT = [string]$Port
 $env:PROPOSAL_BOT_AUTH_REQUIRED = 'true'

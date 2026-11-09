@@ -44,7 +44,8 @@ const MIME_TYPES = {
   ".svg": "image/svg+xml",
   ".webp": "image/webp"
 };
-const PROJECT_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp"]);
+const PROJECT_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff"]);
+const { projectImagePreview } = require("./project-image-previews");
 
 let idmlBaseFiles = null;
 let microsoftOidcCache = null;
@@ -390,11 +391,12 @@ async function listProjectImages(rootDir, relativeDir) {
       images.push(...await listProjectImages(rootDir, nextRelativePath));
       continue;
     }
-    if (!entry.isFile() || !PROJECT_IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+    if ((!entry.isFile() && !entry.isSymbolicLink()) || !PROJECT_IMAGE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
       continue;
     }
     const filePath = path.join(rootDir, nextRelativePath);
-    const stats = await fs.promises.stat(filePath);
+    const stats = await projectImageStats(rootDir, filePath);
+    if (!stats) continue;
     const parentDir = path.posix.dirname(nextRelativePath);
     images.push({
       name: entry.name,
@@ -406,6 +408,38 @@ async function listProjectImages(rootDir, relativeDir) {
     });
   }
   return images;
+}
+
+// Follow Windows share reparse points only when they still resolve inside the library.
+async function projectImageStats(rootDir, filePath) {
+  try {
+    const [root, resolved, stats] = await Promise.all([
+      fs.promises.realpath(rootDir), fs.promises.realpath(filePath), fs.promises.stat(filePath)
+    ]);
+    const relative = path.relative(root, resolved);
+    return stats.isFile() && relative && !relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative) ? stats : null;
+  } catch (error) {
+    if (error.code === 'ENOENT' || error.code === 'ELOOP') return null;
+    throw error;
+  }
+}
+
+async function serveProjectImage(filePath, response) {
+  try {
+    const stats = await projectImageStats(PROJECT_IMAGES_DIR, filePath);
+    if (!stats) {
+      response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('Not found');
+      return;
+    }
+    const tiff = /\.tiff?$/i.test(filePath);
+    const bytes = tiff ? await projectImagePreview(filePath, stats) : await fs.promises.readFile(filePath);
+    response.writeHead(200, { 'Content-Type': tiff ? 'image/jpeg' : MIME_TYPES[path.extname(filePath).toLowerCase()], 'Cache-Control': 'no-cache' });
+    response.end(bytes);
+  } catch (error) {
+    response.writeHead(error.code === 'ENOENT' ? 404 : 422, { 'Content-Type': 'text/plain; charset=utf-8' });
+    response.end(error.code === 'ENOENT' ? 'Not found' : 'This image could not be previewed.');
+  }
 }
 
 function serveStaticFile(request, response) {
@@ -437,6 +471,9 @@ function serveStaticFile(request, response) {
     response.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
     response.end("Forbidden");
     return;
+  }
+  if (projectImageRequest) {
+    return serveProjectImage(filePath, response);
   }
   fs.readFile(filePath, (error, data) => {
     if (error) {
@@ -2253,6 +2290,7 @@ function removeScratchDirectory(directoryPath) {
 }
 
 module.exports = {
+  listProjectImages,
   serveStaticFile,
   buildLayoutCaptureHtml,
   buildEditableInDesignPackageBufferFromLayout,

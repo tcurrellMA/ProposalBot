@@ -14,7 +14,10 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY --chown=node:node server.js shared-drafts.js text-flow.js global-changes.js compensation-import.js app.js index.html styles.css indesign-template.js version.json ./
+COPY --chown=node:node package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+
+COPY --chown=node:node server.js project-image-previews.js shared-drafts.js text-flow.js global-changes.js compensation-import.js app.js index.html styles.css indesign-template.js version.json ./
 COPY --chown=node:node ["MA Logo.jpg", "./MA Logo.jpg"]
 COPY --chown=node:node assets ./assets
 RUN mkdir -p "/app/Project Images" "/app/data" && chown -R node:node /app

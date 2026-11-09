@@ -14,6 +14,12 @@ if (-not (Test-Path -LiteralPath $ImagesDirectory -PathType Container)) {
 }
 $ImagesDirectory = (Get-Item -LiteralPath $ImagesDirectory).FullName
 
+# Install the pinned image decoder when this checkout has no local dependencies.
+if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'node_modules/sharp/package.json'))) {
+  & npm.cmd ci --omit=dev --ignore-scripts --prefix $PSScriptRoot
+  if ($LASTEXITCODE -ne 0) { throw 'Could not install Proposal Bot dependencies.' }
+}
+
 $previewUrl = "http://127.0.0.1:$Port/"
 $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
 if ($listener) {
