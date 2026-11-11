@@ -21,36 +21,38 @@ async function projectImagePreview(filePath, stats) {
   }
   if (pending.has(key)) return pending.get(key);
   const work = (async () => {
-    // Limit concurrent conversions when the photo grid requests many TIFFs.
-    if (active >= 2) await new Promise(resolve => waiting.push(resolve));
-    else active += 1;
-    try {
-      // Layered Photoshop TIFFs can exceed libtiff's metadata allocation cap.
-      // Bound file size, pixel count and concurrency while allowing those tags.
-      const bytes = await sharp(filePath, { page: 0, pages: 1, unlimited: true, limitInputPixels: 100000000 })
-        .autoOrient()
-        .resize({ width: 4096, height: 4096, fit: 'inside', withoutEnlargement: true })
-        .flatten({ background: '#ffffff' })
-        .jpeg({ quality: 92, chromaSubsampling: '4:4:4' })
-        .toBuffer();
-      if (bytes.length <= MAX_CACHE_BYTES) {
-        while (cacheBytes + bytes.length > MAX_CACHE_BYTES) {
-          const oldest = previews.keys().next().value;
-          cacheBytes -= previews.get(oldest).length;
-          previews.delete(oldest);
-        }
-        previews.set(key, bytes);
-        cacheBytes += bytes.length;
+    const bytes = await convertImage(filePath);
+    if (bytes.length <= MAX_CACHE_BYTES) {
+      while (cacheBytes + bytes.length > MAX_CACHE_BYTES) {
+        const oldest = previews.keys().next().value;
+        cacheBytes -= previews.get(oldest).length;
+        previews.delete(oldest);
       }
-      return bytes;
-    } finally {
-      if (waiting.length) waiting.shift()();
-      else active -= 1;
+      previews.set(key, bytes);
+      cacheBytes += bytes.length;
     }
+    return bytes;
   })();
   pending.set(key, work);
   try { return await work; }
   finally { pending.delete(key); }
 }
 
-module.exports = { projectImagePreview };
+// Uploaded portraits, signatures and logos need a portable image with alpha intact.
+async function convertImage(input, preserveTransparency = false) {
+  if (active >= 2) await new Promise(resolve => waiting.push(resolve));
+  else active += 1;
+  try {
+    // Allow Photoshop TIFF tags while bounding source pixels and concurrent work.
+    let image = sharp(input, { page: 0, pages: 1, unlimited: true, limitInputPixels: 100000000 })
+      .autoOrient()
+      .resize({ width: 4096, height: 4096, fit: 'inside', withoutEnlargement: true });
+    image = preserveTransparency ? image.png() : image.flatten({ background: '#ffffff' }).jpeg({ quality: 92, chromaSubsampling: '4:4:4' });
+    return await image.toBuffer();
+  } finally {
+    if (waiting.length) waiting.shift()();
+    else active -= 1;
+  }
+}
+
+module.exports = { projectImagePreview, convertImage };

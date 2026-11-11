@@ -45,7 +45,7 @@ const MIME_TYPES = {
   ".webp": "image/webp"
 };
 const PROJECT_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff"]);
-const { projectImagePreview } = require("./project-image-previews");
+const { projectImagePreview, convertImage } = require("./project-image-previews");
 
 let idmlBaseFiles = null;
 let microsoftOidcCache = null;
@@ -111,6 +111,11 @@ const server = http.createServer(async (request, response) => {
         if (!error.status) throw error;
         sendJson(response, { error: error.message }, error.status);
       }
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/image-preview") {
+      await handleImageUpload(request, response);
       return;
     }
 
@@ -2137,6 +2142,32 @@ function corsHeaders() {
   };
 }
 
+const MAX_IMAGE_UPLOAD_BYTES = 256 * 1024 * 1024;
+
+async function handleImageUpload(request, response) {
+  try {
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of request) {
+      size += chunk.length;
+      if (size <= MAX_IMAGE_UPLOAD_BYTES) chunks.push(chunk);
+    }
+    if (size > MAX_IMAGE_UPLOAD_BYTES) {
+      sendJson(response, { error: "This image is too large. Choose a file smaller than 256 MB." }, 413);
+      return;
+    }
+    if (!size) {
+      sendJson(response, { error: "The selected image is empty." }, 400);
+      return;
+    }
+    const bytes = await convertImage(Buffer.concat(chunks), true);
+    response.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" });
+    response.end(bytes);
+  } catch (error) {
+    sendJson(response, { error: "This image could not be read. It may be damaged or use an unsupported format. Try exporting it as PNG or JPEG." }, 422);
+  }
+}
+
 function readJsonBody(request, maxBytes = Infinity) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -2290,6 +2321,7 @@ function removeScratchDirectory(directoryPath) {
 }
 
 module.exports = {
+  handleImageUpload,
   listProjectImages,
   serveStaticFile,
   buildLayoutCaptureHtml,

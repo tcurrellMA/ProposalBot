@@ -1275,7 +1275,7 @@
     actions.className = "schedule-import-actions";
     var upload = document.createElement("input");
     upload.type = "file";
-    upload.accept = "image/*";
+    upload.accept = "image/*,.tif,.tiff,.heic,.heif,.avif,.jxl";
     upload.addEventListener("change", function (event) {
       var file = event.target.files && event.target.files[0];
       if (file) {
@@ -1364,7 +1364,7 @@
     actions.className = "schedule-import-actions";
     var upload = document.createElement("input");
     upload.type = "file";
-    upload.accept = "image/*";
+    upload.accept = "image/*,.tif,.tiff,.heic,.heif,.avif,.jxl";
     upload.addEventListener("change", function (event) {
       var file = event.target.files && event.target.files[0];
       if (file) {
@@ -1584,7 +1584,7 @@
     uploadCard.appendChild(libraryFilter);
     var input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*";
+    input.accept = "image/*,.tif,.tiff,.heic,.heif,.avif,.jxl";
     input.multiple = true;
     input.addEventListener("change", function (event) {
       var files = Array.from(event.target.files || []);
@@ -6178,17 +6178,50 @@
   }
 
   function readFileAsDataUrl(file, callback) {
+    function failed(message) {
+      flashStatus(message || "The selected image could not be read. Please try another file.");
+    }
+    function convert() {
+      flashStatus("Preparing image...");
+      fetch("/api/image-preview", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: file
+      }).then(function (response) {
+        if (!response.ok) {
+          return response.json().then(function (result) { throw new Error(result.error || "Image conversion failed."); });
+        }
+        return response.blob();
+      }).then(function (blob) {
+        var converted = new FileReader();
+        converted.onerror = function () { failed(); };
+        converted.onload = function () { callback(converted.result); };
+        converted.readAsDataURL(blob);
+      }).catch(function (error) { failed(error.message); });
+    }
+    // Convert nonportable formats even in browsers that happen to decode them.
+    if (/\.(tiff?|heic|heif|jxl)$/i.test(file.name || "") || /image\/(tiff|heic|heif|jxl)/i.test(file.type || "")) {
+      convert();
+      return;
+    }
     var reader = new FileReader();
+    reader.onerror = function () { failed(); };
     reader.onload = function () {
-      callback(reader.result);
+      if (isPdfFile(file)) {
+        callback(reader.result);
+        return;
+      }
+      var image = new Image();
+      image.onload = function () { callback(reader.result); };
+      image.onerror = convert;
+      image.src = reader.result;
     };
     reader.readAsDataURL(file);
   }
 
   function readPhotoFileAsDataUrl(file, callback) {
-    var reader = new FileReader();
-    reader.onload = function () {
-      var original = reader.result;
+    readFileAsDataUrl(file, function (original) {
       var image = new Image();
       image.onload = function () {
         var maxSize = 1200;
@@ -6200,15 +6233,14 @@
         canvas.width = width;
         canvas.height = height;
         var context = canvas.getContext("2d");
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, width, height);
         context.drawImage(image, 0, 0, width, height);
         callback(canvas.toDataURL("image/jpeg", 0.76));
       };
-      image.onerror = function () {
-        callback(original);
-      };
+      image.onerror = function () { flashStatus("The selected photo could not be displayed. Please try another file."); };
       image.src = original;
-    };
-    reader.readAsDataURL(file);
+    });
   }
 
   function downloadText(filename, content, type) {
@@ -9829,7 +9861,7 @@
       uploadField.innerHTML = "<label>Photo</label>";
       var upload = document.createElement("input");
       upload.type = "file";
-      upload.accept = "image/*";
+      upload.accept = "image/*,.tif,.tiff,.heic,.heif,.avif,.jxl";
       upload.addEventListener("change", function (event) {
         var file = event.target.files && event.target.files[0];
         if (!file) {
@@ -9879,7 +9911,7 @@
     uploadField.innerHTML = "<label>Signature image</label>";
     var upload = document.createElement("input");
     upload.type = "file";
-    upload.accept = "image/*";
+    upload.accept = "image/*,.tif,.tiff,.heic,.heif,.avif,.jxl";
     upload.addEventListener("change", function (event) {
       var file = event.target.files && event.target.files[0];
       if (!file) {
@@ -10088,7 +10120,7 @@
       uploadField.innerHTML = "<label>Client logo " + (index + 1) + "</label>";
       var upload = document.createElement("input");
       upload.type = "file";
-      upload.accept = "image/*";
+      upload.accept = "image/*,.tif,.tiff,.heic,.heif,.avif,.jxl";
       upload.addEventListener("change", function (event) {
         var file = event.target.files && event.target.files[0];
         if (!file) {
