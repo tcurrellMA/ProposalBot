@@ -559,6 +559,8 @@
   ];
 
   var els = {};
+  var draftEditGeneration = 0;
+  var pendingImageImports = 0;
   var proposal = createDefaultProposal();
 
   document.addEventListener("DOMContentLoaded", async function () {
@@ -769,8 +771,8 @@
     document.addEventListener("pointercancel", cancelPhotoLibraryDrag);
 
     els.preview.addEventListener("dragover", function (event) {
-      var slot = event.target.closest(".editable-photo-slot");
-      if (!slot || !photoSlotControl(slot) || !hasProposalPhotoDrag(event.dataTransfer)) {
+      var slot = previewPhotoDropTarget(event.target);
+      if (!slot || !hasProposalPhotoDrag(event.dataTransfer)) {
         return;
       }
       event.preventDefault();
@@ -780,24 +782,22 @@
     });
 
     els.preview.addEventListener("dragleave", function (event) {
-      var slot = event.target.closest(".editable-photo-slot");
+      var slot = previewPhotoDropTarget(event.target);
       if (slot && (!event.relatedTarget || !slot.contains(event.relatedTarget))) {
         slot.classList.remove("is-photo-drop-target");
       }
     });
 
     els.preview.addEventListener("drop", function (event) {
-      var slot = event.target.closest(".editable-photo-slot");
-      var control = photoSlotControl(slot);
+      var slot = previewPhotoDropTarget(event.target);
       var photoId = proposalPhotoIdFromTransfer(event.dataTransfer);
-      if (!slot || !control || !photoId) {
+      if (!slot || !photoId) {
         return;
       }
       event.preventDefault();
       event.stopPropagation();
       clearPreviewPhotoDropState();
-      choosePreviewPhoto(control.dataset.photoKey, control.dataset.photoType, photoId);
-      flashStatus("Photo replaced. Choose Hand to reposition it.");
+      placeLibraryPhotoInPreview(slot, photoId);
     });
 
     ProposalTextFlow.install(els.preview, {
@@ -1651,12 +1651,12 @@
         card.className = "photo-card";
         if (photo.dataUrl) {
           var thumbnail = photoLibraryThumbnailImage(photo);
-          var canPlacePhoto = isPhotoAvailableForManualPlacement(photo);
+          var canPlacePhoto = isLibraryPhotoDraggable(photo);
           thumbnail.draggable = false;
           thumbnail.dataset.photoLibraryId = canPlacePhoto ? photo.id : "";
           thumbnail.classList.toggle("photo-thumb-draggable", canPlacePhoto);
           thumbnail.title = canPlacePhoto
-            ? "Drag onto a photo frame in the proposal preview"
+            ? "Drag onto a photo frame or team headshot in the proposal preview"
             : "Mark this photo Included before placing it";
           card.appendChild(thumbnail);
         } else {
@@ -2118,9 +2118,7 @@
       '<h2>' + escapeHtml(pageDisplayTitle(page)) + '</h2>' +
       '</section>' +
       '<section class="northline-team-list">' + members.map(function (member) {
-        var photoMarkup = member.photoDataUrl
-          ? '<img class="' + teamHeadshotClass("northline-team-person-photo") + '" src="' + member.photoDataUrl + '" alt="' + escapeHtml(member.name || "Team member") + '">'
-          : '<div class="' + teamHeadshotClass("northline-team-person-photo northline-team-placeholder") + '">' + escapeHtml(initialsFromName(member.name || "Team Member")) + '</div>';
+        var photoMarkup = renderTeamHeadshot(member, "northline-team-person-photo");
         return '<div class="northline-team-row">' + photoMarkup + '<div class="northline-team-person-copy"><strong>' + escapeHtml(member.name || "Team Member") + '</strong><span>' + escapeHtml(member.title || "") + '</span><p>' + escapeHtml(member.description || "") + '</p></div></div>';
       }).join("") + '</section>' +
       '</section>' +
@@ -3569,6 +3567,46 @@
     return slot ? slot.querySelector("[data-photo-key]") : null;
   }
 
+  function isLibraryPhotoDraggable(photo) {
+    return !!(photo && photo.id && photo.included && photo.dataUrl);
+  }
+
+  function previewPhotoDropTarget(element) {
+    var slot = element && element.closest(".editable-photo-slot, .team-headshot-slot");
+    return slot && els.preview.contains(slot) && (slot.dataset.teamMemberId || photoSlotControl(slot)) ? slot : null;
+  }
+
+  function placeLibraryPhotoInPreview(slot, photoId) {
+    if (slot.dataset.teamMemberId) {
+      var member = proposal.team.members.find(function (item) { return item.id === slot.dataset.teamMemberId; });
+      var photo = proposal.photos.find(function (item) { return item.id === photoId && isLibraryPhotoDraggable(item); });
+      if (!member || !photo) return;
+      setTeamMemberPortrait(member, photo.dataUrl);
+      flashStatus("Headshot replaced.");
+      return;
+    }
+    var control = photoSlotControl(slot);
+    if (control && isPhotoAvailableForManualPlacement(proposal.photos.find(function (item) { return item.id === photoId; }))) {
+      choosePreviewPhoto(control.dataset.photoKey, control.dataset.photoType, photoId);
+      flashStatus("Photo replaced. Choose Hand to reposition it.");
+    }
+  }
+
+  function setTeamMemberPortrait(member, dataUrl) {
+    var owner = proposal;
+    member.photoDataUrl = dataUrl;
+    member.photoStored = false;
+    markDirty();
+    saveCurrentDraft();
+    renderPreview();
+    storeTeamMemberPhoto(member, function (stored) {
+      if (proposal !== owner || member.photoDataUrl !== dataUrl) return;
+      member.photoStored = stored;
+      saveCurrentDraft();
+      if (activeTab !== "photos") renderAll();
+    });
+  }
+
   function beginPhotoLibraryDrag(event) {
     var image = event.target.closest("img[data-photo-library-id]");
     if (!image || !image.dataset.photoLibraryId || (event.button !== undefined && event.button !== 0)) {
@@ -3611,10 +3649,7 @@
     session.ghost.style.left = event.clientX + "px";
     session.ghost.style.top = event.clientY + "px";
     var elementAtPoint = document.elementFromPoint(event.clientX, event.clientY);
-    var slot = elementAtPoint && elementAtPoint.closest(".editable-photo-slot");
-    if (!slot || !els.preview.contains(slot) || !photoSlotControl(slot)) {
-      slot = null;
-    }
+    var slot = previewPhotoDropTarget(elementAtPoint);
     session.targetSlot = slot;
     clearPreviewPhotoDropTargets(slot);
     if (slot) {
@@ -3628,13 +3663,12 @@
     if (!session || event.pointerId !== session.pointerId) {
       return;
     }
-    var targetControl = session.targetSlot && photoSlotControl(session.targetSlot);
+    var targetSlot = session.targetSlot;
     var photoId = session.photoId;
-    var completed = session.started && targetControl;
+    var completed = session.started && targetSlot;
     cleanupPhotoLibraryDrag(session);
     if (completed) {
-      choosePreviewPhoto(targetControl.dataset.photoKey, targetControl.dataset.photoType, photoId);
-      flashStatus("Photo replaced. Choose Hand to reposition it.");
+      placeLibraryPhotoInPreview(targetSlot, photoId);
     }
     event.preventDefault();
   }
@@ -3908,7 +3942,7 @@
       (page.subtitle ? '<p>' + escapeHtml(page.subtitle) + '</p>' : '') +
       '</aside>' +
       '<section class="modern-content modern-content-model">' +
-      '<div class="doc-copy">' + page.content() + '</div>' +
+      '<div class="doc-copy">' + (page.header === "Our Team" ? renderModernTeamContent() : page.content()) + '</div>' +
       '</section>' +
       '<aside class="modern-visuals">' +
       renderModernPhoto(photos[0], photoType, "modern-photo-main", photoSlotKey(pageKey, "main", photoType)) +
@@ -3924,12 +3958,20 @@
     });
   }
 
+  function renderModernTeamContent() {
+    return '<div class="modern-team-list">' + selectedTeamMembers().map(function (member) {
+      return '<div class="modern-team-row">' + renderTeamHeadshot(member, "modern-team-person-photo") +
+        '<div class="team-member-copy"><strong>' + escapeHtml(member.name || "Team member") + '</strong><span>' + escapeHtml(member.title || "") + '</span><p>' + escapeHtml(member.description || "") + '</p></div></div>';
+    }).join("") + '</div>';
+  }
+
   function updateHeader() {
     els.heading.textContent = proposal.project.projectName || "New Proposal";
     els.status.textContent = sharedSaveError || (sharedPendingSaves ? "Saving to shared folder..." : (isDirty ? "Unsaved changes" : "Saved to shared folder"));
   }
 
   function markDirty() {
+    draftEditGeneration += 1;
     isDirty = true;
     proposal.meta.updatedAt = new Date().toISOString().slice(0, 10);
     updateHeader();
@@ -3970,11 +4012,16 @@
   }
 
   async function refreshSharedDrafts() {
-    if (isDirty || sharedPendingSaves) return;
+    if (isDirty || sharedPendingSaves || pendingImageImports) return;
+    var owner = proposal;
+    var generation = draftEditGeneration;
     var currentId = proposal.meta.id;
     var previousRevision = sharedRevisions[currentId] || "";
     try {
-      await loadSharedDrafts();
+      var applied = await loadSharedDrafts(function () {
+        return proposal === owner && draftEditGeneration === generation && !isDirty && !sharedPendingSaves && !pendingImageImports;
+      });
+      if (!applied) return;
       if (sharedDrafts[currentId] && sharedRevisions[currentId] !== previousRevision) {
         proposal = normalizeProposal(sharedDrafts[currentId]);
         await new Promise(function (resolve) { hydrateProposalPhotos(resolve); });
@@ -4001,12 +4048,14 @@
     }
   }
 
-  async function loadSharedDrafts() {
+  async function loadSharedDrafts(shouldApply) {
     var response = await fetch("/api/drafts", { cache: "no-store" });
     if (!response.ok) throw new Error("Shared projects returned HTTP " + response.status);
     var payload = await response.json();
+    if (shouldApply && !shouldApply()) return false;
     sharedDrafts = Object.assign(Object.create(null), payload.drafts || {});
     sharedRevisions = Object.assign(Object.create(null), payload.revisions || {});
+    return true;
   }
 
   async function sharedDraftRequest(id, method, draft, revision) {
@@ -4735,6 +4784,8 @@
   }
 
   function hydrateProposalPhotos(callback) {
+    var onHydrated = callback;
+    callback = function () { repairStoredTiffPhotos(onHydrated); };
     var missing = proposal.photos.filter(function (photo) {
       return photo && photo.stored && !photo.dataUrl;
     });
@@ -4782,6 +4833,58 @@
           });
         }
       });
+      callback();
+    });
+  }
+
+  function isStoredTiffImage(value) {
+    var match = /^data:[^,]*;base64,([A-Za-z0-9+/]{8})/.exec(String(value || "").slice(0, 128));
+    if (!match) return false;
+    try {
+      var header = atob(match[1].slice(0, 8));
+      return (header.slice(0, 2) === "II" && /[\x2a\x2b]/.test(header[2]) && header[3] === "\x00") ||
+        (header.slice(0, 2) === "MM" && header[2] === "\x00" && /[\x2a\x2b]/.test(header[3]));
+    } catch (error) { return false; }
+  }
+
+  function repairStoredTiffPhotos(callback) {
+    var owner = proposal;
+    var repairs = [];
+    (owner.photos || []).forEach(function (photo) {
+      if (isStoredTiffImage(photo.dataUrl)) repairs.push({ asset: photo, key: "dataUrl", store: storePhotoData });
+    });
+    (owner.team.members || []).forEach(function (member) {
+      if (isStoredTiffImage(member.photoDataUrl) || /^data:image\//.test(member.photoDataUrl) && member.photoDataUrl.length > 2 * 1024 * 1024) {
+        repairs.push({ asset: member, key: "photoDataUrl", store: storeTeamMemberPhoto });
+      }
+    });
+    if (!repairs.length) { callback(); return; }
+    pendingImageImports += 1;
+    var changed = false;
+    repairs.reduce(function (chain, repair) {
+      return chain.then(async function () {
+        if (proposal !== owner) return;
+        var original = repair.asset[repair.key];
+        try {
+          var blob = await (await fetch(original)).blob();
+          await new Promise(function (resolve) {
+            readFileAsDataUrl(new File([blob], "stored-photo.tif", { type: blob.type }), function (converted) {
+              if (proposal !== owner || repair.asset[repair.key] !== original) { resolve(); return; }
+              repair.asset[repair.key] = converted;
+              changed = true;
+              repair.store(repair.asset, function (stored) {
+                repair.asset[repair.key === "dataUrl" ? "stored" : "photoStored"] = stored;
+                resolve();
+              });
+            }, resolve);
+          });
+        } catch (error) {
+          console.error("Could not repair a stored TIFF photo", error);
+        }
+      });
+    }, Promise.resolve()).finally(function () {
+      pendingImageImports -= 1;
+      if (changed && proposal === owner) { markDirty(); saveCurrentDraft(); }
       callback();
     });
   }
@@ -6177,9 +6280,21 @@
       .replace(/^-+|-+$/g, "") || "proposal";
   }
 
-  function readFileAsDataUrl(file, callback) {
+  function readFileAsDataUrl(file, callback, onError) {
+    pendingImageImports += 1;
+    var settled = false;
+    function complete(dataUrl) {
+      if (settled) return;
+      settled = true;
+      pendingImageImports -= 1;
+      callback(dataUrl);
+    }
     function failed(message) {
+      if (settled) return;
+      settled = true;
+      pendingImageImports -= 1;
       flashStatus(message || "The selected image could not be read. Please try another file.");
+      if (onError) onError();
     }
     function convert() {
       flashStatus("Preparing image...");
@@ -6196,12 +6311,12 @@
       }).then(function (blob) {
         var converted = new FileReader();
         converted.onerror = function () { failed(); };
-        converted.onload = function () { callback(converted.result); };
+        converted.onload = function () { complete(converted.result); };
         converted.readAsDataURL(blob);
       }).catch(function (error) { failed(error.message); });
     }
     // Convert nonportable formats even in browsers that happen to decode them.
-    if (/\.(tiff?|heic|heif|jxl)$/i.test(file.name || "") || /image\/(tiff|heic|heif|jxl)/i.test(file.type || "")) {
+    if (/\.(tiff?|heic|heif|jxl)$/i.test(file.name || "") || /image\/(tiff|heic|heif|jxl)/i.test(file.type || "") || !isPdfFile(file) && file.size > 2 * 1024 * 1024) {
       convert();
       return;
     }
@@ -6209,11 +6324,11 @@
     reader.onerror = function () { failed(); };
     reader.onload = function () {
       if (isPdfFile(file)) {
-        callback(reader.result);
+        complete(reader.result);
         return;
       }
       var image = new Image();
-      image.onload = function () { callback(reader.result); };
+      image.onload = function () { complete(reader.result); };
       image.onerror = convert;
       image.src = reader.result;
     };
@@ -7135,11 +7250,17 @@
       '.northline-team-title p{max-width:1.8in;}',
       '.northline-team-title:after{width:1.7in;}',
       '.northline-team-list{position:absolute;left:.54in;top:2.9in;width:3.22in;}',
-      '.northline-team-row{display:grid;grid-template-columns:.88in 1fr;gap:.16in;align-items:start;padding:.13in 0;border-top:1px solid #d8d0c2;}',
+      '.northline-team-row{display:grid;grid-template-columns:1.29in 1fr;gap:.16in;align-items:start;padding:.13in 0;border-top:1px solid #d8d0c2;}',
       '.northline-team-row:first-child{padding-top:0;border-top:0;}',
-      '.northline-team-person-photo{width:.82in;height:.82in;object-fit:cover;display:block;border-radius:0;border:1px solid #ddd4c6;background:#ebe4d8;}',
+      '.northline-team-person-photo{width:1.23in;height:1.23in;object-fit:cover;display:block;border-radius:0;border:1px solid #ddd4c6;background:#ebe4d8;}',
       '.team-headshot-circle{border-radius:999px!important;overflow:hidden;}',
+      '.team-headshot-slot{position:relative;margin:0;overflow:hidden;flex-shrink:0;}.team-headshot-slot>.page-photo{display:block;width:100%;height:100%;object-fit:cover;}',
+      '.team-headshot-slot.has-team-headshot{border:0;background:transparent;}',
+      '.team-headshot-placeholder{display:grid;place-items:center;width:100%;height:100%;min-height:.7in;background:#ebe4d8;color:#5d574f;}',
+      '.modern-team-row{display:flex;align-items:flex-start;gap:.16in;margin-bottom:.24in;break-inside:avoid;}.modern-team-person-photo{width:1.275in;height:1.275in;background:#ebe4d8;}',
+      '.studio-team-row{grid-template-columns:1.09in 1fr;}.studio-team-person-photo{width:1.05in;height:1.05in;}',
       '.northline-team-placeholder{display:grid;place-items:center;color:#1d1d1b;font-size:8px;font-weight:900;letter-spacing:.08em;}',
+      '.northline-team-person-copy{align-self:end;}',
       '.northline-team-person-copy strong{display:block;font-size:9.4px;line-height:1.18;text-transform:uppercase;}',
       '.northline-team-person-copy span{display:block;margin-top:.02in;color:#5e5a53;font-size:7px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;}',
       '.northline-team-person-copy p{display:none;}',
@@ -9867,15 +9988,17 @@
         if (!file) {
           return;
         }
+        var owner = proposal;
+        var targetMember = owner.team.members[index];
+        upload.disabled = true;
         readFileAsDataUrl(file, function (dataUrl) {
-          proposal.team.members[index].photoDataUrl = dataUrl;
-          storeTeamMemberPhoto(proposal.team.members[index], function (stored) {
-            proposal.team.members[index].photoStored = stored;
-            markDirty();
-            saveCurrentDraft();
-            renderAll();
-          });
-        });
+          upload.disabled = false;
+          if (proposal !== owner) {
+            flashStatus("The project changed while the photo was loading. Select the photo again in this project.");
+            return;
+          }
+          setTeamMemberPortrait(targetMember, dataUrl);
+        }, function () { upload.disabled = false; });
       });
       uploadField.appendChild(upload);
       if (member.photoDataUrl) {
@@ -12439,9 +12562,7 @@
       '<div class="studio-page-number">' + escapeHtml(twoDigit(pageNumber)) + '</div>' +
       '<section class="studio-team-title"><h2>' + escapeHtml(pageDisplayTitle(page)) + '</h2></section>' +
       '<section class="studio-team-list">' + members.map(function (member, index) {
-        var memberPhoto = member.photoDataUrl
-          ? '<img class="' + teamHeadshotClass("studio-team-person-photo") + '" src="' + member.photoDataUrl + '" alt="' + escapeHtml(member.name || "Team member") + '">'
-          : (supportPhotos[index] ? '<img class="' + teamHeadshotClass("studio-team-person-photo") + '" src="' + supportPhotos[index].dataUrl + '" alt="' + escapeHtml(member.name || "Team member") + '">' : '<div class="' + teamHeadshotClass("studio-team-person-photo studio-team-photo-placeholder") + '"></div>');
+        var memberPhoto = renderTeamHeadshot(member, "studio-team-person-photo", supportPhotos[index] && supportPhotos[index].dataUrl);
         return '<div class="studio-team-row">' + memberPhoto + '<div class="studio-team-person-copy"><strong>' + escapeHtml(member.name || "Team Member") + '</strong><span>' + escapeHtml(member.title || "") + '</span><p>' + escapeHtml(member.description || "") + '</p></div></div>';
       }).join("") + '</section>' +
       '<aside class="studio-team-hero">' + renderStudioPagePhoto(heroPhoto, heroPhoto ? "context" : photoType, pageKey + "-hero") + '</aside>' +
@@ -12561,15 +12682,16 @@
   function renderTeamPhotoRail(page) {
     var members = selectedTeamMembers();
     var items = members.map(function (member, index) {
-      return member.photoDataUrl
-        ? '<figure class="' + teamHeadshotClass('structured-team-photo-slot photo-slot photo-slot-' + (index === 0 ? "top" : "bottom")) + '"><img class="page-photo" src="' + member.photoDataUrl + '" alt="' + escapeHtml(member.name || "Team member") + '"></figure>'
-        : "";
-    }).filter(Boolean);
-    if (!items.length) {
-      var photos = choosePagePhotos(page.photoType, page.key, ["top", "bottom"]);
-      return renderStructuredPhotoRail(page, photos);
-    }
+      return renderTeamHeadshot(member, 'structured-team-photo-slot photo-slot photo-slot-' + (index === 0 ? "top" : "bottom"));
+    });
     return '<aside class="photo-rail structured-photo-rail structured-team-rail team-count-' + escapeHtml(String(items.length)) + '">' + items.join("") + "</aside>";
+  }
+
+  function renderTeamHeadshot(member, className, fallbackSource) {
+    var source = member.photoDataUrl || fallbackSource;
+    return '<figure class="' + teamHeadshotClass(className) + ' team-headshot-slot' + (source ? ' has-team-headshot' : '') + '" data-team-member-id="' + escapeHtml(member.id) + '" aria-label="Headshot for ' + escapeHtml(member.name || "Team member") + '">' +
+      (source ? '<img class="page-photo" draggable="false" src="' + escapeHtml(source) + '" alt="' + escapeHtml(member.name || "Team member") + '">' : '<span class="team-headshot-placeholder">' + escapeHtml(initialsFromName(member.name || "Team member")) + '</span>') +
+      '</figure>';
   }
 
   function projectSummaryAddressBlockHtml() {

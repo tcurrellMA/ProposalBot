@@ -45,7 +45,7 @@ const MIME_TYPES = {
   ".webp": "image/webp"
 };
 const PROJECT_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff"]);
-const { projectImagePreview, convertImage } = require("./project-image-previews");
+const { projectImagePreview, convertImage, MAX_IMAGE_SOURCE_BYTES } = require("./project-image-previews");
 
 let idmlBaseFiles = null;
 let microsoftOidcCache = null;
@@ -2142,29 +2142,35 @@ function corsHeaders() {
   };
 }
 
-const MAX_IMAGE_UPLOAD_BYTES = 256 * 1024 * 1024;
-
 async function handleImageUpload(request, response) {
+  let directory;
   try {
-    const chunks = [];
+    directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'proposal-image-upload-'));
+    const input = path.join(directory, 'source');
     let size = 0;
-    for await (const chunk of request) {
-      size += chunk.length;
-      if (size <= MAX_IMAGE_UPLOAD_BYTES) chunks.push(chunk);
-    }
-    if (size > MAX_IMAGE_UPLOAD_BYTES) {
-      sendJson(response, { error: "This image is too large. Choose a file smaller than 256 MB." }, 413);
+    // Large layered TIFFs must not be accumulated and copied in server memory.
+    await fs.promises.writeFile(input, (async function* () {
+      for await (const chunk of request) {
+        size += chunk.length;
+        if (size <= MAX_IMAGE_SOURCE_BYTES) yield chunk;
+      }
+    })());
+    if (size > MAX_IMAGE_SOURCE_BYTES) {
+      sendJson(response, { error: "This image is too large. Choose a file smaller than 1 GB." }, 413);
       return;
     }
     if (!size) {
       sendJson(response, { error: "The selected image is empty." }, 400);
       return;
     }
-    const bytes = await convertImage(Buffer.concat(chunks), true);
-    response.writeHead(200, { "Content-Type": "image/png", "Cache-Control": "no-store" });
+    const bytes = await convertImage(input, true);
+    const contentType = bytes[0] === 0x89 ? 'image/png' : 'image/jpeg';
+    response.writeHead(200, { "Content-Type": contentType, "Cache-Control": "no-store" });
     response.end(bytes);
   } catch (error) {
     sendJson(response, { error: "This image could not be read. It may be damaged or use an unsupported format. Try exporting it as PNG or JPEG." }, 422);
+  } finally {
+    if (directory) await fs.promises.rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(() => {});
   }
 }
 

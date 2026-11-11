@@ -4,6 +4,7 @@ const previews = new Map();
 const pending = new Map();
 const waiting = [];
 const MAX_CACHE_BYTES = 64 * 1024 * 1024;
+const MAX_IMAGE_SOURCE_BYTES = 1024 * 1024 * 1024;
 let cacheBytes = 0;
 let active = 0;
 
@@ -11,7 +12,7 @@ let active = 0;
 sharp.cache({ memory: 16, files: 0, items: 64 });
 
 async function projectImagePreview(filePath, stats) {
-  if (stats.size > 256 * 1024 * 1024) throw new Error('TIFF source exceeds the preview size limit.');
+  if (stats.size > MAX_IMAGE_SOURCE_BYTES) throw new Error('TIFF source exceeds the 1 GB preview size limit.');
   const key = JSON.stringify([filePath, stats.mtimeMs, stats.ctimeMs, stats.size]);
   if (previews.has(key)) {
     const bytes = previews.get(key);
@@ -38,7 +39,7 @@ async function projectImagePreview(filePath, stats) {
   finally { pending.delete(key); }
 }
 
-// Uploaded portraits, signatures and logos need a portable image with alpha intact.
+// Keep uploads compact enough to display and save; preserve alpha when present.
 async function convertImage(input, preserveTransparency = false) {
   if (active >= 2) await new Promise(resolve => waiting.push(resolve));
   else active += 1;
@@ -46,8 +47,11 @@ async function convertImage(input, preserveTransparency = false) {
     // Allow Photoshop TIFF tags while bounding source pixels and concurrent work.
     let image = sharp(input, { page: 0, pages: 1, unlimited: true, limitInputPixels: 100000000 })
       .autoOrient()
-      .resize({ width: 4096, height: 4096, fit: 'inside', withoutEnlargement: true });
-    image = preserveTransparency ? image.png() : image.flatten({ background: '#ffffff' }).jpeg({ quality: 92, chromaSubsampling: '4:4:4' });
+      .toColourspace('srgb');
+    const alpha = preserveTransparency && (await image.metadata()).hasAlpha;
+    const maxSize = preserveTransparency ? 2400 : 4096;
+    image = image.resize({ width: maxSize, height: maxSize, fit: 'inside', withoutEnlargement: true });
+    image = alpha ? image.png({ compressionLevel: 9 }) : image.flatten({ background: '#ffffff' }).jpeg({ quality: preserveTransparency ? 90 : 92, chromaSubsampling: '4:4:4' });
     return await image.toBuffer();
   } finally {
     if (waiting.length) waiting.shift()();
@@ -55,4 +59,4 @@ async function convertImage(input, preserveTransparency = false) {
   }
 }
 
-module.exports = { projectImagePreview, convertImage };
+module.exports = { projectImagePreview, convertImage, MAX_IMAGE_SOURCE_BYTES };

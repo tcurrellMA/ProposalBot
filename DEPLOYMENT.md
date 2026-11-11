@@ -20,6 +20,8 @@ Add JPG, PNG, or TIFF files within the existing category folders on server2, the
 
 Local uses the UNC path directly through `start-proposal-bot-local.ps1` and keeps test projects in `.local-data`. Main's writable saved-project mount remains `/opt/proposal-bot/data` to `/app/data`; its sign-in settings and other environment variables were preserved. The previous host image folder `/opt/proposal-bot/Project Images` was left in place.
 
+Large layered TIFF sources are supported up to 1 GB, including the approximately 475 MB files in the Headshot folder. Image uploads stream to temporary files rather than buffering the entire source in server memory. Uploaded images are prepared at a maximum 2400-pixel longest side, using compressed PNG when transparency is present and JPEG for opaque images. Shared-library TIFF previews remain JPEGs at a maximum 4096-pixel longest side. Originals remain unchanged.
+
 ## Future deployments
 
 Preserve the external shared-image volume and subpath when updating Main. Do not restore the old image bind mount or overwrite the shared library with a local copy. `compose.yaml` remains an optional generic bind-mount deployment; `compose.main.yaml` records the actual Main storage setup. The GitHub remote does not automatically deploy this Portainer stack. On an explicit push request, wait for the container workflow to succeed, update only the application image in the existing stack, and verify the live release and saved projects.
