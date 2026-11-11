@@ -77,7 +77,7 @@
   function validate(rule) {
     var result = { from: clean(rule.from), to: clean(rule.to), subject: clean(rule.subject) };
     if (!result.from || !result.to) throw new Error("Enter both the current and new values.");
-    if (result.from.toLowerCase() === result.to.toLowerCase()) throw new Error("The current and new values must differ.");
+    if (result.from === result.to) throw new Error("The current and new values must differ.");
     result.oldNumber = number(result.from); result.newNumber = number(result.to);
     if ((result.oldNumber === null) !== (result.newNumber === null)) throw new Error("For a quantity change, enter a number in both value fields. For a name change, enter both full names.");
     if (result.oldNumber !== null && result.oldNumber === result.newNumber) throw new Error("Enter a different new number.");
@@ -103,7 +103,7 @@
         value = /^\d/.test(matched) ? rule.newNumber.toLocaleString("en-US") : words(rule.newNumber, /\band\b/i.test(matched));
         if (!/[\u2011-]/.test(matched)) value = value.replace(/-/g, " ");
         value = replacementCase(matched, value);
-      } else if (matched === matched.toUpperCase()) value = value.toUpperCase();
+      }
       matches.push({ start: offset, end: offset + matched.length, before: matched, after: value });
       return value;
     });

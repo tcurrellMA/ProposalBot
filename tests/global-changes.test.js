@@ -26,11 +26,21 @@ test('requests parse quantities and names; names match whole phrases', () => {
   assert.deepEqual(changes.parseRequest('change 152 units to one hundred sixty units'),{from:'152',to:'one hundred sixty',subject:'units'});
   assert.deepEqual(changes.parseRequest('Replace Old Name with New Name throughout the proposal'),{from:'Old Name',to:'New Name',subject:''});
   assert.deepEqual(changes.parseRequest('Change AOR to read XXX'),{from:'AOR',to:'XXX',subject:''});
-  assert.equal(changes.replaceText("Ann, ANN, annual, Joanne, Ann's",{from:'Ann',to:'Beth'}).text,"Beth, BETH, annual, Joanne, Beth's");
+  assert.equal(changes.replaceText("Ann, ANN, annual, Joanne, Ann's",{from:'Ann',to:'Beth'}).text,"Beth, Beth, annual, Joanne, Beth's");
   assert.equal(changes.replaceText('M+A (West), M+A (West)Side',{from:'M+A (West)',to:'New $& Co.'}).text,'New $& Co., M+A (West)Side');
   assert.throws(()=>changes.parseRequest('make the project bigger'));
   assert.throws(()=>changes.validate({from:'5',to:'five'}));
   assert.throws(()=>changes.validate({from:'',to:'6'}));
+});
+
+test('text replacements preserve the entered capitalization, including case-only corrections', () => {
+  const rule = changes.parseRequest('Change MA to Munoz Albin');
+  const result = changes.replaceText('MA and ma coordinate with Ma. MAIN stays unchanged.', rule);
+  assert.equal(result.text, 'Munoz Albin and Munoz Albin coordinate with Munoz Albin. MAIN stays unchanged.');
+  assert.deepEqual(result.matches.map(match => match.after), ['Munoz Albin', 'Munoz Albin', 'Munoz Albin']);
+  assert.equal(changes.replaceText('MA and Ma', {from:'MA', to:'ma'}).text, 'ma and ma');
+  assert.equal(changes.replaceText('Munoz Albin', {from:'Munoz Albin', to:'MUNOZ ALBIN'}).text, 'MUNOZ ALBIN');
+  assert.throws(() => changes.validate({from:'MA', to:'MA'}));
 });
 
 test('plans cover proposal copy while protecting IDs, assets, settings, finances and saved presets', () => {
@@ -107,6 +117,19 @@ test('global change UI reviews, applies, exports, persists and undoes real propo
       check(i<100,'Global changes persist to shared draft');
       api.set(saved.drafts[api.get().meta.id]);check(api.pages().includes('one hundred and sixty-four'),'Changes survive normalization and reload');
 
+      var caseFixture=api.defaults();
+      caseFixture.sectionOverrides.process='MA and the other consultants will work under contract with the AOR.';
+      api.set(caseFixture);click('tab-changes');request('Change MA to Munoz Albin');
+      var caseReview=document.getElementById('global-change-results').textContent;
+      check(caseReview.includes('Munoz Albin and the other consultants'),'Review preserves the entered capitalization');
+      check(!caseReview.includes('MUNOZ ALBIN'),'Review does not force the replacement into uppercase');
+      click('apply-global-change');
+      check(api.get().sectionOverrides.process.startsWith('Munoz Albin and'),'Applied text preserves capitalization');
+      check(api.pages().includes('Munoz Albin and the other consultants'),'Preview preserves replacement capitalization');
+      check((await api.word().text()).includes('Munoz Albin and the other consultants'),'Word preserves replacement capitalization');
+      click('undo-global-change');
+      check(api.get().sectionOverrides.process.startsWith('MA and'),'Undo restores original capitalization');
+
       // Default deliverables and generated headings must not restore old terms.
       var full=api.defaults(); full.meta.id='global-aor-regression';
       full.feeStructures[0].heading='AOR coordination';full.feeStructures[0].belowText='AOR fee breakdown';
@@ -148,8 +171,8 @@ test('global change UI reviews, applies, exports, persists and undoes real propo
       check(remainingAor(copyText(api.pages())).length===initialAor,'Undo restores every original AOR reference');
       request('Change AOR to read AOR Team');click('apply-global-change');
       var repeatedText=copyText(api.pages());
-      check(repeatedText.includes('AOR TEAM'),'Replacement can contain the original term');
-      check(!repeatedText.includes('AOR TEAM TEAM'),'Default replacements are applied once');
+      check(repeatedText.includes('AOR Team'),'Replacement can contain the original term and preserves its entered case');
+      check(!repeatedText.includes('AOR Team Team'),'Default replacements are applied once');
       request('Change 300 units to 100000 units');
       check(document.getElementById('global-change-results').textContent.includes('100,000'),'Review formats larger quantities with grouping commas');
       click('apply-global-change');
