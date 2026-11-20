@@ -4892,7 +4892,7 @@ figure:hover > .photo-frame-resize-handle::after,
 .is-text-frame-resizing { user-select: none; cursor: ns-resize; }
 @media print { .text-frame-resize-handle { display: none !important; } }
 
-/* Compensation schedule, styled as a numbered ledger. */
+/* Compensation schedule, styled as a ledger. */
 .fee-ledger {
   width: 100%;
   table-layout: fixed;
@@ -4906,8 +4906,7 @@ figure:hover > .photo-frame-resize-handle::after,
   break-inside: avoid;
   page-break-inside: avoid;
 }
-.fee-ledger .fee-ledger-number-column { width: 8%; }
-.fee-ledger .fee-ledger-label-column { width: 52%; }
+.fee-ledger .fee-ledger-label-column { width: 60%; }
 .fee-ledger .fee-ledger-amount-column { width: 26%; }
 .fee-ledger th,
 .fee-ledger td {
@@ -4919,16 +4918,8 @@ figure:hover > .photo-frame-resize-handle::after,
   text-align-last: left;
   font-weight: 400;
 }
-.fee-ledger .fee-ledger-number {
-  padding-right: 8px;
-  color: #454545;
-  font-size: 8px;
-  letter-spacing: 0.1em;
-}
 .fee-ledger .fee-ledger-label {
-  padding-left: 12px;
   padding-right: 8px;
-  border-left: 1px solid #d8d8d5;
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
