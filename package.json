@@ -1,6 +1,6 @@
 {
   "name": "proposal-bot",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "private": true,
   "scripts": {
     "start": "node server.js",
